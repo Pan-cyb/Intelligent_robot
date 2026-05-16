@@ -248,19 +248,31 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
     // First fill all the data with Nan
     output.ranges.assign(beam_size, std::numeric_limits<float>::quiet_NaN());
     output.intensities.assign(beam_size, std::numeric_limits<float>::quiet_NaN());
+    int raw_nonzero_count = 0;
+    int angle_window_count = 0;
+    int written_count = 0;
     for (auto point : src) {
       float range = point.distance / 1000.f;  // distance unit transform to meters
       float intensity = point.intensity;      // laser receive intensity 
       float dir_angle = point.angle;
+      bool point_valid = true;
+
+      if (point.distance != 0 || point.intensity != 0) {
+        raw_nonzero_count++;
+      }
 
       if ((point.distance == 0) && (point.intensity == 0)) { // filter is handled to  0, Nan will be assigned variable.
         range = std::numeric_limits<float>::quiet_NaN(); 
         intensity = std::numeric_limits<float>::quiet_NaN();
+        point_valid = false;
       }
 
       if (!IsAngleInCropWindow(dir_angle, setting)) { // Mask data outside the retained angle window
         range = std::numeric_limits<float>::quiet_NaN();
         intensity = std::numeric_limits<float>::quiet_NaN();
+        point_valid = false;
+      } else {
+        angle_window_count++;
       }
 
       float angle = ANGLE_TO_RADIAN(dir_angle); // Lidar angle unit form degree transform to radian
@@ -295,8 +307,17 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
           }
           output.intensities[index] = intensity;
         }
+        if (point_valid && std::isfinite(range)) {
+          written_count++;
+        }
       }
     }
+    RCLCPP_INFO_THROTTLE(
+      node->get_logger(), *node->get_clock(), 2000,
+      "scan debug: beam_size=%d raw_nonzero=%d angle_window=%d written=%d crop=%s min=%.1f max=%.1f",
+      beam_size, raw_nonzero_count, angle_window_count, written_count,
+      setting.enable_angle_crop_func ? "true" : "false",
+      setting.angle_crop_min, setting.angle_crop_max);
     lidarpub->publish(output);
     end_scan_time = start_scan_time;
   } 
