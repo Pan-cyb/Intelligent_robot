@@ -22,12 +22,26 @@
 #include "ldlidar_driver/ldlidar_driver_linux.h"
 
 uint64_t GetTimestamp(void);
+static bool IsAngleInCropWindow(double angle_deg, const LaserScanSetting& setting);
 
 void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr& lidarpub);
 
 void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr& lidarpub);
+
+static bool IsAngleInCropWindow(double angle_deg, const LaserScanSetting& setting)
+{
+  if (!setting.enable_angle_crop_func) {
+    return true;
+  }
+
+  if (setting.angle_crop_min <= setting.angle_crop_max) {
+    return angle_deg > setting.angle_crop_min && angle_deg < setting.angle_crop_max;
+  }
+
+  return angle_deg > setting.angle_crop_min || angle_deg < setting.angle_crop_max;
+}
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
@@ -244,11 +258,9 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
         intensity = std::numeric_limits<float>::quiet_NaN();
       }
 
-      if (setting.enable_angle_crop_func) { // Angle crop setting, Mask data within the set angle range
-        if ((dir_angle <= setting.angle_crop_min) || (dir_angle >= setting.angle_crop_max)) {
-          range = std::numeric_limits<float>::quiet_NaN();
-          intensity = std::numeric_limits<float>::quiet_NaN();
-        }
+      if (!IsAngleInCropWindow(dir_angle, setting)) { // Mask data outside the retained angle window
+        range = std::numeric_limits<float>::quiet_NaN();
+        intensity = std::numeric_limits<float>::quiet_NaN();
       }
 
       float angle = ANGLE_TO_RADIAN(dir_angle); // Lidar angle unit form degree transform to radian
@@ -356,6 +368,10 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
     float range = dst[i].distance / 1000.f;  // distance unit transform to meters
     float intensity = dst[i].intensity;      // laser receive intensity 
     float dir_angle = ANGLE_TO_RADIAN(dst[i].angle);
+    if (!IsAngleInCropWindow(dst[i].angle, setting)) {
+      range = std::numeric_limits<float>::quiet_NaN();
+      intensity = std::numeric_limits<float>::quiet_NaN();
+    }
     //  极坐标系转换为笛卡尔直角坐标系
     output.points[i].x = range * cos(dir_angle);
     output.points[i].y = range * sin(dir_angle);
