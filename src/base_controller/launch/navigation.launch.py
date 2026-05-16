@@ -1,15 +1,24 @@
 import os
 from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('base_controller')
+    ldlidar_pkg = get_package_share_directory('ldlidar_ros2')
     map_path = os.path.join(pkg_share, 'my_map1.yaml')
     params_file = os.path.join(pkg_share, 'my_nav2_params.yaml')
     rviz_config = os.path.join(pkg_share, 'navigation.rviz')
 
     common = {'use_sim_time': False}
+    ldlidar_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            ldlidar_pkg,
+            '/launch/ld06.launch.py'
+        ])
+    )
 
     # 辅助函数：创建 Nav2 节点
     def nav2_node(package, executable, name):
@@ -22,32 +31,7 @@ def generate_launch_description():
         )
 
     return LaunchDescription([
-        Node(
-            package='ldlidar_ros2',
-            executable='ldlidar_ros2_node',
-            name='ldlidar_publisher_ld06',
-            output='screen',
-            parameters=[
-                {'product_name': 'LDLiDAR_LD06'},
-                {'laser_scan_topic_name': 'scan'},
-                {'point_cloud_2d_topic_name': 'pointcloud2d'},
-                {'frame_id': 'base_laser'},
-                {'port_name': '/dev/ttyUSB0'},
-                {'serial_baudrate': 230400},
-                {'laser_scan_dir': True},
-                {'enable_angle_crop_func': True},
-                {'angle_crop_min': 320.0},
-                {'angle_crop_max': 40.0},
-                {'range_min': 0.2},
-                {'range_max': 12.0}
-            ]
-        ),
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_tf_laser',
-            arguments=['-0.01', '0', '0.1', '3.1415926', '0', '0', 'base_link', 'base_laser'],
-        ),
+        ldlidar_launch,
         Node(
             package='base_controller',
             executable='base_controller_node',

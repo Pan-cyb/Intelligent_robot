@@ -22,12 +22,26 @@
 #include "ldlidar_driver/ldlidar_driver_linux.h"
 
 uint64_t GetTimestamp(void);
+static bool IsAngleInCropWindow(double angle_deg, const LaserScanSetting& setting);
 
 void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr& lidarpub);
 
 void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr& lidarpub);
+
+static bool IsAngleInCropWindow(double angle_deg, const LaserScanSetting& setting)
+{
+  if (!setting.enable_angle_crop_func) {
+    return true;
+  }
+
+  if (setting.angle_crop_min <= setting.angle_crop_max) {
+    return angle_deg > setting.angle_crop_min && angle_deg < setting.angle_crop_max;
+  }
+
+  return angle_deg > setting.angle_crop_min || angle_deg < setting.angle_crop_max;
+}
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
@@ -234,21 +248,31 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
     // First fill all the data with Nan
     output.ranges.assign(beam_size, std::numeric_limits<float>::quiet_NaN());
     output.intensities.assign(beam_size, std::numeric_limits<float>::quiet_NaN());
+    int raw_nonzero_count = 0;
+    int angle_window_count = 0;
+    int written_count = 0;
     for (auto point : src) {
       float range = point.distance / 1000.f;  // distance unit transform to meters
       float intensity = point.intensity;      // laser receive intensity 
       float dir_angle = point.angle;
+      bool point_valid = true;
+
+      if (point.distance != 0 || point.intensity != 0) {
+        raw_nonzero_count++;
+      }
 
       if ((point.distance == 0) && (point.intensity == 0)) { // filter is handled to  0, Nan will be assigned variable.
         range = std::numeric_limits<float>::quiet_NaN(); 
         intensity = std::numeric_limits<float>::quiet_NaN();
+        point_valid = false;
       }
 
-      if (setting.enable_angle_crop_func) { // Angle crop setting, Mask data within the set angle range
-        if ((dir_angle <= setting.angle_crop_min) || (dir_angle >= setting.angle_crop_max)) {
-          range = std::numeric_limits<float>::quiet_NaN();
-          intensity = std::numeric_limits<float>::quiet_NaN();
-        }
+      if (!IsAngleInCropWindow(dir_angle, setting)) { // Mask data outside the retained angle window
+        range = std::numeric_limits<float>::quiet_NaN();
+        intensity = std::numeric_limits<float>::quiet_NaN();
+        point_valid = false;
+      } else {
+        angle_window_count++;
       }
 
       float angle = ANGLE_TO_RADIAN(dir_angle); // Lidar angle unit form degree transform to radian
@@ -283,8 +307,17 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
           }
           output.intensities[index] = intensity;
         }
+        if (point_valid && std::isfinite(range)) {
+          written_count++;
+        }
       }
     }
+    RCLCPP_INFO_THROTTLE(
+      node->get_logger(), *node->get_clock(), 2000,
+      "scan debug: beam_size=%d raw_nonzero=%d angle_window=%d written=%d crop=%s min=%.1f max=%.1f",
+      beam_size, raw_nonzero_count, angle_window_count, written_count,
+      setting.enable_angle_crop_func ? "true" : "false",
+      setting.angle_crop_min, setting.angle_crop_max);
     lidarpub->publish(output);
     end_scan_time = start_scan_time;
   } 
@@ -356,6 +389,10 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
     float range = dst[i].distance / 1000.f;  // distance unit transform to meters
     float intensity = dst[i].intensity;      // laser receive intensity 
     float dir_angle = ANGLE_TO_RADIAN(dst[i].angle);
+    if (!IsAngleInCropWindow(dst[i].angle, setting)) {
+      range = std::numeric_limits<float>::quiet_NaN();
+      intensity = std::numeric_limits<float>::quiet_NaN();
+    }
     //  极坐标系转换为笛卡尔直角坐标系
     output.points[i].x = range * cos(dir_angle);
     output.points[i].y = range * sin(dir_angle);
