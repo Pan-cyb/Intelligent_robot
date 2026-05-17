@@ -233,6 +233,15 @@ critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist"
 
 实测结果更差，小车从起始窄段就更难走出。原因是 DWB 缺少 `GoalAlign/GoalDist` 后，只剩贴路径和避障评分，缺少沿路径向前推进的吸引力，在窄通道起点更容易选择低风险但不前进的轨迹。因此本分支恢复 `GoalAlign/GoalDist` 到 critic 列表，但保留较低权重 `6.0`，让它提供推进力，同时不再像早期配置那样强拉最终目标点。
 
+在恢复 goal critic 后，如果仍然对目标点敏感，可以继续保守降低目标牵引，但不能降到 0。本分支最后一轮 DWB 实验使用：
+
+```yaml
+GoalAlign.scale: 3.0
+GoalDist.scale: 4.0
+```
+
+这保留少量向前推进能力，同时进一步降低最终目标点对窄通道局部轨迹的牵引。如果这仍无法稳定通过，说明问题已经不是简单权重比例，而是 DWB 的局部采样优化机制不适合当前“严格跟全局路径过窄道”的需求。
+
 `RotateToGoal.scale: 32.0`
 
 保留较强终点旋转能力。DWB 在终点附近通常比 RPP 更自然地做原地转向，这也是本分支需要验证的点。

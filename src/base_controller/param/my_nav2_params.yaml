@@ -176,10 +176,10 @@ controller_server:
 
       PathDist.scale: 72.0
 
-      GoalAlign.scale: 6.0
+      GoalAlign.scale: 3.0
       GoalAlign.forward_point_distance: 0.10
 
-      GoalDist.scale: 6.0
+      GoalDist.scale: 4.0
 
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
