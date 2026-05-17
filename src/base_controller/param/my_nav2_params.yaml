@@ -15,7 +15,7 @@
     lambda_short: 0.1
     laser_likelihood_max_dist: 1.0
     laser_max_range: 12.0
-    laser_min_range: 0.05
+    laser_min_range: 0.12
     laser_model_type: "likelihood_field"
     max_beams: 120
     max_particles: 4000
@@ -219,7 +219,7 @@ local_costmap:
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.12
 
       always_send_full_costmap: True
 
@@ -250,7 +250,7 @@ global_costmap:
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.12
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -278,7 +278,7 @@ map_saver:
 
 planner_server:
   ros__parameters:
-    expected_planner_frequency: 20.0
+    expected_planner_frequency: 5.0
     use_sim_time: True
     planner_plugins: ["GridBased"]
     GridBased:

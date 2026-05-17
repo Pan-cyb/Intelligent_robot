@@ -149,6 +149,17 @@ crop=true min=45.0 max=280.0
 
 但驱动原来只把 `range_min/range_max` 写进 LaserScan 元数据，并没有真正过滤小于 `range_min` 或大于 `range_max` 的点。因此 RViz 或 costmap 中仍可能看到靠近坐标轴的短小噪声点。本分支在 `ldlidar_ros2/src/demo.cpp` 中补充了实际范围过滤，超出 `[range_min, range_max]` 的点会被置为 NaN。
 
+第三轮实车日志确认 RViz 中 `/scan` 仍能看到靠近坐标系的小短线，说明 0.05 m 对当前安装和 LD06 近距离噪声仍偏低。因此本分支把雷达发布端、AMCL 和 costmap 障碍层的最小有效距离统一提高到 0.12 m：
+
+```yaml
+ld06.range_min: 0.12
+amcl.laser_min_range: 0.12
+local_costmap.obstacle_layer.scan.obstacle_min_range: 0.12
+global_costmap.obstacle_layer.scan.obstacle_min_range: 0.12
+```
+
+`raytrace_min_range` 暂时保留 0.0，避免额外收窄清障范围；真正小于 0.12 m 的 scan 点会在雷达发布端被置为 NaN。
+
 ## 窄通道失败后的修正
 
 第二轮实车日志中，控制循环已经基本稳定，但小车在狭窄路径中过不去，最终：
@@ -181,6 +192,13 @@ BaseObstacle.scale: 0.04
 ```
 
 这个调整的意图是：保留贴全局路径倾向，但不要把局部规划器锁死在全局路径线上；同时缩小膨胀半径，让窄路中仍有可行空间。
+
+第三轮日志中仍然出现狭窄路径附近 `Failed to make progress`，但同时有两类信号需要分开看：
+
+1. `STM communicate lost...` 多次出现，这会直接影响 `/odom` 更新和 Nav2 的进度判断。即使局部规划器继续发速度，进度检查器也可能认为机器人没有移动。
+2. `Planner loop missed its desired rate of 20.0000 Hz` 偶发出现，说明 20 Hz 的 planner 期望频率对当前板子偏激进。本分支把 `expected_planner_frequency` 降到 5 Hz，减少行为树因为规划器超时而进入清图/恢复的概率。
+
+这次没有继续缩小膨胀半径。当前 local inflation 已经是 0.25 m，结合 footprint 半宽约 0.12 m，再继续缩小会更容易贴墙，可能把真实碰撞风险转移给局部控制器。若 0.12 m 雷达过滤后窄通道仍失败，下一步应优先确认 `/odom` 是否连续，再决定是否把 local inflation 试探性降到 0.20 m。
 
 `RotateToGoal.scale: 32.0`
 
