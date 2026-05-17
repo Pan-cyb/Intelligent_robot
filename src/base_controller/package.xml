@@ -25,6 +25,7 @@
   <depend>nav2_costmap_2d</depend>
   <depend>nav2_dwa_controller</depend>
   <depend>nav2_regulated_pure_pursuit_controller</depend>
+  <depend>nav2_velocity_smoother</depend>
   <depend>nav2_planner</depend>
   <depend>nav2_bt_navigator</depend>
 

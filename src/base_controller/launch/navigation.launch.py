@@ -21,13 +21,14 @@ def generate_launch_description():
     )
 
     # 辅助函数：创建 Nav2 节点
-    def nav2_node(package, executable, name):
+    def nav2_node(package, executable, name, remappings=None):
         return Node(
             package=package,
             executable=executable,
             name=name,
             output='screen',
-            parameters=[params_file, common]
+            parameters=[params_file, common],
+            remappings=remappings or []
         )
 
     return LaunchDescription([
@@ -48,9 +49,25 @@ def generate_launch_description():
         ),
         nav2_node('nav2_amcl', 'amcl', 'amcl'),
         nav2_node('nav2_planner', 'planner_server', 'planner_server'),
-        nav2_node('nav2_controller', 'controller_server', 'controller_server'),
+        nav2_node(
+            'nav2_controller',
+            'controller_server',
+            'controller_server',
+            remappings=[('cmd_vel', 'cmd_vel_nav')]
+        ),
         nav2_node('nav2_behaviors', 'behavior_server', 'behavior_server'),
         nav2_node('nav2_bt_navigator', 'bt_navigator', 'bt_navigator'),
+        Node(
+            package='nav2_velocity_smoother',
+            executable='velocity_smoother',
+            name='velocity_smoother',
+            output='screen',
+            parameters=[params_file, common],
+            remappings=[
+                ('cmd_vel', 'cmd_vel_nav'),
+                ('cmd_vel_smoothed', 'cmd_vel')
+            ]
+        ),
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -65,7 +82,8 @@ def generate_launch_description():
                     'planner_server',
                     'controller_server',
                     'behavior_server',
-                    'bt_navigator'
+                    'bt_navigator',
+                    'velocity_smoother'
                 ]}
             ]
         ),
