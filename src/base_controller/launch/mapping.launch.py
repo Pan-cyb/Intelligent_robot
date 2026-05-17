@@ -44,6 +44,10 @@ def generate_launch_description():
         executable='async_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
+        remappings=[
+            ('scan', scan_topic),
+            ('odom', odom_topic),
+        ],
         parameters=[{
             'mode': 'mapping',
             # 坐标系（你已有的，保持不动）
@@ -51,23 +55,27 @@ def generate_launch_description():
             'base_frame': 'base_link',
             'laser_frame': 'base_laser',
             'map_frame': 'map',
-            # 地图质量
-            'resolution': 0.05,
-            'max_laser_range': 12.0,    # 根据你雷达实际距离改（10m/12m/20m）
+            # 地图质量：0.02m 比 0.05m 更精细，但 CPU/内存占用会更高。
+            'resolution': 0.02,
+            'max_laser_range': 12.0,    # 根据雷达实际可靠距离调整
             # ======================================
             # 【关键！让地图实时更新的参数】
             # ======================================
             'use_scan_matching': True,
             'use_odometry': True,        # 必须开启里程计
-            'map_update_interval': 0.2,  # 每0.2秒更新一次地图（更快更流畅）
-            # 移动多少就更新（小车专用：非常灵敏）
-            'minimum_travel_distance': 0.02,   # 走 3厘米 就更新
-            'minimum_travel_heading': 0.02,    # 转 1.7度 就更新
+            'throttle_scans': 1,         # 每帧激光都参与建图
+            'map_update_interval': 0.1,  # 每0.1秒更新一次地图
+            'minimum_time_interval': 0.02,
+            # 移动多少就更新（小车专用：更灵敏）
+            'minimum_travel_distance': 0.01,   # 走 1厘米 就更新
+            'minimum_travel_heading': 0.01,    # 转约 0.57度 就更新
             # TF 发布频率（让 odom 相对于 map 流畅动）
             'transform_publish_period': 0.05,  # 20Hz 高频发布
+            'transform_timeout': 0.2,
+            'tf_buffer_duration': 30.0,
             # 队列大小（防止数据丢包）
-            'scan_queue_size': 10,
-            'odom_queue_size': 10,
+            'scan_queue_size': 30,
+            'odom_queue_size': 30,
             # 建图稳定性
             'correction_alpha': 1.0,
             'max_correction': 0.1,
