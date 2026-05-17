@@ -155,10 +155,10 @@ controller_server:
       decel_lim_y: 0.0
       decel_lim_theta: -3.2
 
-      vx_samples: 12
+      vx_samples: 16
       vy_samples: 1
-      vtheta_samples: 20
-      sim_time: 0.8
+      vtheta_samples: 24
+      sim_time: 0.9
       linear_granularity: 0.05
       angular_granularity: 0.05
       transform_tolerance: 0.2
@@ -169,18 +169,18 @@ controller_server:
 
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
 
-      BaseObstacle.scale: 0.005
+      BaseObstacle.scale: 0.08
 
-      PathAlign.scale: 3.0
-      PathAlign.forward_point_distance: 0.35
+      PathAlign.scale: 10.0
+      PathAlign.forward_point_distance: 0.30
 
-      GoalAlign.scale: 6.0
-      GoalAlign.forward_point_distance: 0.35
+      GoalAlign.scale: 8.0
+      GoalAlign.forward_point_distance: 0.30
 
-      PathDist.scale: 4.0
-      GoalDist.scale: 24.0
+      PathDist.scale: 14.0
+      GoalDist.scale: 16.0
 
-      RotateToGoal.scale: 4.0
+      RotateToGoal.scale: 8.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
 
@@ -202,8 +202,8 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 9.0
-        inflation_radius: 0.20
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.28
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
