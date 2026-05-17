@@ -134,55 +134,55 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
 
- FollowPath:
-  plugin: "dwb_core::DWBLocalPlanner"
-  debug_trajectory_details: True
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: True
 
-  min_vel_x: -0.08
-  min_vel_y: 0.0
-  max_vel_x: 0.30
-  max_vel_y: 0.0
-  max_vel_theta: 1.2
+      min_vel_x: -0.08
+      min_vel_y: 0.0
+      max_vel_x: 0.30
+      max_vel_y: 0.0
+      max_vel_theta: 1.2
 
-  min_speed_xy: 0.0
-  max_speed_xy: 0.30
-  min_speed_theta: 0.0
+      min_speed_xy: 0.0
+      max_speed_xy: 0.30
+      min_speed_theta: 0.0
 
-  acc_lim_x: 2.5
-  acc_lim_y: 0.0
-  acc_lim_theta: 3.2
-  decel_lim_x: -2.5
-  decel_lim_y: 0.0
-  decel_lim_theta: -3.2
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 3.2
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -3.2
 
-  vx_samples: 30
-  vy_samples: 1
-  vtheta_samples: 40
-  sim_time: 1.0
-  linear_granularity: 0.025
-  angular_granularity: 0.025
-  transform_tolerance: 0.2
-  xy_goal_tolerance: 0.25
-  trans_stopped_velocity: 0.04
-  short_circuit_trajectory_evaluation: False
-  stateful: True
+      vx_samples: 30
+      vy_samples: 1
+      vtheta_samples: 40
+      sim_time: 1.0
+      linear_granularity: 0.025
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.04
+      short_circuit_trajectory_evaluation: False
+      stateful: True
 
-  critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
 
-  BaseObstacle.scale: 0.01
+      BaseObstacle.scale: 0.01
 
-  PathAlign.scale: 6.0
-  PathAlign.forward_point_distance: 0.35
+      PathAlign.scale: 6.0
+      PathAlign.forward_point_distance: 0.35
 
-  GoalAlign.scale: 8.0
-  GoalAlign.forward_point_distance: 0.35
+      GoalAlign.scale: 8.0
+      GoalAlign.forward_point_distance: 0.35
 
-  PathDist.scale: 8.0
-  GoalDist.scale: 24.0
+      PathDist.scale: 8.0
+      GoalDist.scale: 24.0
 
-  RotateToGoal.scale: 8.0
-  RotateToGoal.slowing_factor: 5.0
-  RotateToGoal.lookahead_time: -1.0
+      RotateToGoal.scale: 8.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
 
 local_costmap:
   local_costmap:
