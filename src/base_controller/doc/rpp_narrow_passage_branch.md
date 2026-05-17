@@ -52,3 +52,21 @@ In RViz, check whether the local costmap leaves a usable corridor at the previou
 If RPP tracks through the same segment with less dependence on the final goal point, DWB should be abandoned for this robot/map combination.
 
 If RPP still fails while the local costmap corridor is visibly open, the repeated `STM communicate lost...` warnings should be investigated next because stale odometry can trigger `Failed to make progress` independently of controller choice.
+
+## Turn Smoothness Update
+
+Initial RPP testing passed the narrow passage and terminal rotation worked, but turns could feel stop-and-go. The likely cause is cost-regulated velocity scaling reacting to local costmap values near inflated obstacles. In narrow corridors, small scan/costmap changes can repeatedly reduce and release linear speed.
+
+This branch keeps curvature-based velocity regulation but disables cost-based linear regulation:
+
+```yaml
+lookahead_dist: 0.34
+min_lookahead_dist: 0.26
+max_lookahead_dist: 0.55
+max_allowed_time_to_collision_up_to_carrot: 0.8
+use_regulated_linear_velocity_scaling: true
+use_cost_regulated_linear_velocity_scaling: false
+regulated_linear_scaling_min_speed: 0.10
+```
+
+The slightly longer lookahead should reduce steering jitter, while curvature regulation still slows the robot for tight turns.
