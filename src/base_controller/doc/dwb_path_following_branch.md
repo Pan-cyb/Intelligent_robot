@@ -223,6 +223,16 @@ BaseObstacle.scale: 0.02
 
 这里 `inflation_radius` 变小让局部可行空间增加，`cost_scaling_factor` 变大让膨胀代价更快衰减，`BaseObstacle.scale` 降低让 DWB 不会因为贴近膨胀区就完全放弃前进。风险是小车会更敢靠近墙面，所以实测时需要重点看局部 costmap 和实体距离。
 
+第五轮日志出现一个更明确的现象：同一位置附近，选择“大弯目标点”时会卡住，但换一个目标点就能过去。这说明问题不仅是通道宽度，也和最终目标点对 DWB 局部评分的牵引有关。DWB 每次收到目标后，局部轨迹会同时被路径距离、路径朝向、目标距离、目标朝向等 critic 打分；目标点一变，`GoalAlign/GoalDist` 对局部轨迹的偏好也会变。
+
+为了验证“能否让 DWB 几乎只跟全局路径走”，本分支临时从 critic 列表中移除 `GoalAlign` 和 `GoalDist`：
+
+```yaml
+critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist"]
+```
+
+这样 DWB 的局部前进主要由全局路径和障碍物决定，不再被最终目标点方向强拉。`RotateToGoal` 仍保留，用于终点附近旋转。若这一版明显改善，说明卡住主要来自 goal critic；若仍然卡住，则 DWB 作为主控制器可能不适合这个地图/底盘组合，应回到 RPP 或把大弯任务拆成中间目标点。
+
 `RotateToGoal.scale: 32.0`
 
 保留较强终点旋转能力。DWB 在终点附近通常比 RPP 更自然地做原地转向，这也是本分支需要验证的点。
