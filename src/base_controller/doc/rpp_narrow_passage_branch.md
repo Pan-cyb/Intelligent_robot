@@ -101,3 +101,10 @@ RPP projects the current command forward for collision checking. In a narrow inf
 use_collision_detection: true
 max_allowed_time_to_collision_up_to_carrot: 0.35
 ```
+
+Field testing still showed repeated `detected collision ahead` warnings with a 0.35 s window. For the next controlled test, this branch disables RPP's forward collision projection while keeping the costmap obstacle/inflation layers and global planning obstacle checks active:
+
+```yaml
+use_collision_detection: false
+max_allowed_time_to_collision_up_to_carrot: 0.35
+```
