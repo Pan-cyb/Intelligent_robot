@@ -59,13 +59,13 @@ FollowPath:
   vtheta_samples: 20
   sim_time: 0.8
   critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalAlign", "GoalDist"]
-  BaseObstacle.scale: 0.05
-  PathAlign.scale: 32.0
+  BaseObstacle.scale: 0.04
+  PathAlign.scale: 24.0
   PathAlign.forward_point_distance: 0.20
-  PathDist.scale: 36.0
-  GoalAlign.scale: 12.0
+  PathDist.scale: 28.0
+  GoalAlign.scale: 14.0
   GoalAlign.forward_point_distance: 0.20
-  GoalDist.scale: 10.0
+  GoalDist.scale: 14.0
   RotateToGoal.scale: 32.0
 ```
 
@@ -99,23 +99,23 @@ FollowPath:
 
 旧版本是 1.7。预测时间太长时，DWB 会看到更远的局部轨迹，可能为了目标点选择更大弯。本分支缩短到 0.8，让局部规划更关注眼前路径跟踪，同时降低计算量。
 
-`PathAlign.scale: 32.0`
+`PathAlign.scale: 24.0`
 
 提高对齐全局路径的权重。这个 critic 鼓励机器人朝全局路径方向走。
 
-`PathDist.scale: 36.0`
+`PathDist.scale: 28.0`
 
 提高距离全局路径的惩罚。这个值高，局部轨迹偏离全局路径会更吃亏。
 
-`GoalAlign.scale: 12.0`
+`GoalAlign.scale: 14.0`
 
 降低朝目标方向抄近路的冲动。旧版本是 24.0，本分支减半。
 
-`GoalDist.scale: 10.0`
+`GoalDist.scale: 14.0`
 
 降低单纯追目标点距离的权重。旧版本是 24.0，本分支明显降低，避免为了离目标更近而偏离全局路径。
 
-`BaseObstacle.scale: 0.05`
+`BaseObstacle.scale: 0.04`
 
 提高避障代价。旧版本是 0.02，当前更重视离墙和障碍物远一点，但不再设到 0.08，避免在窄通道中过度保守。
 
@@ -148,6 +148,39 @@ crop=true min=45.0 max=280.0
 ```
 
 但驱动原来只把 `range_min/range_max` 写进 LaserScan 元数据，并没有真正过滤小于 `range_min` 或大于 `range_max` 的点。因此 RViz 或 costmap 中仍可能看到靠近坐标轴的短小噪声点。本分支在 `ldlidar_ros2/src/demo.cpp` 中补充了实际范围过滤，超出 `[range_min, range_max]` 的点会被置为 NaN。
+
+## 窄通道失败后的修正
+
+第二轮实车日志中，控制循环已经基本稳定，但小车在狭窄路径中过不去，最终：
+
+```text
+Failed to make progress
+```
+
+这更像局部代价地图和 DWB 权重过保守，而不是 CPU 跑不动。
+
+当局部膨胀半径较大、PathDist/PathAlign 权重也较高时，DWB 会同时受到两类约束：
+
+1. 不愿靠墙，因为障碍膨胀区代价高。
+2. 不愿离开全局路径，因为 PathDist/PathAlign 惩罚高。
+
+在窄通道里，这两者叠加就会让可行轨迹很少，表现为停住、反复重规划，最后进度检查失败。
+
+因此本分支进一步调整为：
+
+```yaml
+local_costmap.inflation_layer.inflation_radius: 0.25
+local_costmap.inflation_layer.cost_scaling_factor: 5.0
+global_costmap.inflation_layer.inflation_radius: 0.35
+global_costmap.inflation_layer.cost_scaling_factor: 2.5
+PathAlign.scale: 24.0
+PathDist.scale: 28.0
+GoalAlign.scale: 14.0
+GoalDist.scale: 14.0
+BaseObstacle.scale: 0.04
+```
+
+这个调整的意图是：保留贴全局路径倾向，但不要把局部规划器锁死在全局路径线上；同时缩小膨胀半径，让窄路中仍有可行空间。
 
 `RotateToGoal.scale: 32.0`
 

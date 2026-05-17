@@ -169,17 +169,17 @@ controller_server:
 
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalAlign", "GoalDist"]
 
-      BaseObstacle.scale: 0.05
+      BaseObstacle.scale: 0.04
 
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.20
+      PathAlign.scale: 24.0
+      PathAlign.forward_point_distance: 0.15
 
-      PathDist.scale: 36.0
+      PathDist.scale: 28.0
 
-      GoalAlign.scale: 12.0
-      GoalAlign.forward_point_distance: 0.20
+      GoalAlign.scale: 14.0
+      GoalAlign.forward_point_distance: 0.15
 
-      GoalDist.scale: 10.0
+      GoalDist.scale: 14.0
 
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
@@ -203,8 +203,8 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.35
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.25
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -258,8 +258,8 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
-        inflation_radius: 0.45
+        cost_scaling_factor: 2.5
+        inflation_radius: 0.35
 
       always_send_full_costmap: True
 
