@@ -32,7 +32,7 @@ def generate_launch_description():
                 {'enable_angle_crop_func': True},
                 {'angle_crop_min': 330.0},  # unit is degress
                 {'angle_crop_max': 30.0},  # unit is degress
-                {'range_min': 0.2}, # unit is meter
+                {'range_min': 0.05}, # unit is meter
                 {'range_max': 12.0}   # unit is meter
             ]
         ),
