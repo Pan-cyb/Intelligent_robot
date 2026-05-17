@@ -45,7 +45,7 @@ local_costmap.inflation_layer.cost_scaling_factor: 8.0
 global_costmap.inflation_layer.inflation_radius: 0.30
 ```
 
-`controller_frequency` is set to 10 Hz and `expected_planner_frequency` to 5 Hz to match observed compute limits on the robot.
+An intermediate test lowered `controller_frequency` to 10 Hz and `expected_planner_frequency` to 5 Hz to reduce compute load, but field testing showed the lower update cadence made RPP turns feel more step-like. The final tuning restores both rates to 20 Hz.
 
 ## Test Focus
 
@@ -122,3 +122,58 @@ The remaining stop-and-go feel resembled RPP entering rotate-to-heading behavior
 rotate_to_heading_min_angle: 0.5
 max_angular_accel: 2.0
 ```
+
+## Final Tuning
+
+The final accepted setup is the RPP narrow-passage configuration from commit `d711f30`. It keeps the narrow-passage fixes that made the robot pass the hard corridor, while restoring the motion parameters that removed the stop-and-go turn behavior:
+
+```yaml
+controller_server:
+  ros__parameters:
+    controller_frequency: 20.0
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.26
+      lookahead_dist: 0.45
+      min_lookahead_dist: 0.35
+      max_lookahead_dist: 0.70
+      lookahead_time: 0.6
+      use_velocity_scaled_lookahead_dist: false
+      use_regulated_linear_velocity_scaling: false
+      use_cost_regulated_linear_velocity_scaling: false
+      use_collision_detection: false
+      max_allowed_time_to_collision_up_to_carrot: 0.35
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.5
+      max_angular_accel: 2.0
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 20.0
+```
+
+The costmap and lidar filtering changes kept from the narrow-passage work are:
+
+```yaml
+local_costmap.inflation_layer.inflation_radius: 0.20
+local_costmap.inflation_layer.cost_scaling_factor: 8.0
+global_costmap.inflation_layer.inflation_radius: 0.30
+amcl.laser_min_range: 0.12
+local_costmap.obstacle_layer.scan.obstacle_min_range: 0.12
+global_costmap.obstacle_layer.scan.obstacle_min_range: 0.12
+```
+
+## Debugging Sequence
+
+The tuning sequence that led to the final setup:
+
+1. DWB was rejected because the robot was too sensitive to the selected final goal pose even when the global path looked valid in RViz.
+2. RPP was selected because it behaves more like path tracking through a carrot point on the global path.
+3. Lidar/costmap near-zero filtering was added to remove close-range artifacts and keep the narrow corridor usable.
+4. Shorter lookahead and regulated velocity scaling were tried, but this made turns feel stop-and-go.
+5. The smoother `b2aae44` RPP motion profile was restored: longer lookahead and no regulated linear velocity scaling.
+6. Repeated `RegulatedPurePursuitController detected collision ahead!` logs showed RPP's forward collision projection was braking in the narrow inflated corridor. Reducing the horizon was not enough, so the projection was disabled for this robot/map.
+7. Lowering controller/planner rates to 10 Hz / 5 Hz did not help and made tracking less continuous, so both were restored to 20 Hz.
+8. `rotate_to_heading_min_angle` was restored from `0.20` to `0.5` and `max_angular_accel` from `3.2` to `2.0`, preventing RPP from entering rotate-to-heading behavior too often during normal path turns.
+
+The key lesson is that the final smooth behavior came from separating three issues: obstacle artifact filtering, RPP forward collision projection in inflated narrow corridors, and rotate-to-heading triggering during normal turns.
