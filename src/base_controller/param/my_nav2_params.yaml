@@ -171,15 +171,15 @@ controller_server:
 
       BaseObstacle.scale: 0.04
 
-      PathAlign.scale: 24.0
-      PathAlign.forward_point_distance: 0.15
+      PathAlign.scale: 48.0
+      PathAlign.forward_point_distance: 0.10
 
-      PathDist.scale: 28.0
+      PathDist.scale: 72.0
 
-      GoalAlign.scale: 14.0
-      GoalAlign.forward_point_distance: 0.15
+      GoalAlign.scale: 6.0
+      GoalAlign.forward_point_distance: 0.10
 
-      GoalDist.scale: 14.0
+      GoalDist.scale: 6.0
 
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0

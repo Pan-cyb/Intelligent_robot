@@ -200,6 +200,19 @@ BaseObstacle.scale: 0.04
 
 这次没有继续缩小膨胀半径。当前 local inflation 已经是 0.25 m，结合 footprint 半宽约 0.12 m，再继续缩小会更容易贴墙，可能把真实碰撞风险转移给局部控制器。若 0.12 m 雷达过滤后窄通道仍失败，下一步应优先确认 `/odom` 是否连续，再决定是否把 local inflation 试探性降到 0.20 m。
 
+第四轮日志确认近距离雷达触手已经消失，但原目标仍会在狭窄段 `Failed to make progress`，而换目标点可成功。这说明主要问题不是雷达近场噪声，而是 DWB 的局部轨迹评分仍可能选择偏离全局路径的局部最优。DWB 没有“硬跟踪全局路径”的开关，只能通过 critic 权重逼近这个行为，因此本分支进一步进入强路径跟随模式：
+
+```yaml
+PathAlign.scale: 48.0
+PathAlign.forward_point_distance: 0.10
+PathDist.scale: 72.0
+GoalAlign.scale: 6.0
+GoalAlign.forward_point_distance: 0.10
+GoalDist.scale: 6.0
+```
+
+这个配置会明显提高偏离全局路径的代价，并降低直接朝目标点抄近路的诱惑。副作用是局部避障会更保守，如果全局路径本身贴墙或穿过窄门中心线不准，DWB 更容易停住而不是主动绕开。
+
 `RotateToGoal.scale: 32.0`
 
 保留较强终点旋转能力。DWB 在终点附近通常比 RPP 更自然地做原地转向，这也是本分支需要验证的点。
