@@ -213,6 +213,16 @@ GoalDist.scale: 6.0
 
 这个配置会明显提高偏离全局路径的代价，并降低直接朝目标点抄近路的诱惑。副作用是局部避障会更保守，如果全局路径本身贴墙或穿过窄门中心线不准，DWB 更容易停住而不是主动绕开。
 
+如果全局路径在 RViz 中确认正常、居中且连续，但 DWB 仍在窄段卡住，那么更可能是局部代价地图把通道算得过窄，或者障碍物 critic 对膨胀区过敏。因此本分支进一步只放松 local costmap，不动 global costmap：
+
+```yaml
+local_costmap.inflation_layer.inflation_radius: 0.20
+local_costmap.inflation_layer.cost_scaling_factor: 8.0
+BaseObstacle.scale: 0.02
+```
+
+这里 `inflation_radius` 变小让局部可行空间增加，`cost_scaling_factor` 变大让膨胀代价更快衰减，`BaseObstacle.scale` 降低让 DWB 不会因为贴近膨胀区就完全放弃前进。风险是小车会更敢靠近墙面，所以实测时需要重点看局部 costmap 和实体距离。
+
 `RotateToGoal.scale: 32.0`
 
 保留较强终点旋转能力。DWB 在终点附近通常比 RPP 更自然地做原地转向，这也是本分支需要验证的点。

@@ -169,7 +169,7 @@ controller_server:
 
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalAlign", "GoalDist"]
 
-      BaseObstacle.scale: 0.04
+      BaseObstacle.scale: 0.02
 
       PathAlign.scale: 48.0
       PathAlign.forward_point_distance: 0.10
@@ -203,8 +203,8 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.25
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.20
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
