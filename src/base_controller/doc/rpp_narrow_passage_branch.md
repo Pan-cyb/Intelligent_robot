@@ -108,3 +108,10 @@ Field testing still showed repeated `detected collision ahead` warnings with a 0
 use_collision_detection: false
 max_allowed_time_to_collision_up_to_carrot: 0.35
 ```
+
+Disabling the forward collision projection removed that warning but did not remove the stop-and-go feel. Comparing against commit `b2aae44` showed the smoother baseline used 20 Hz controller and planner rates. This branch restores those rates so RPP receives fresh path/controller updates at the same cadence as the earlier smooth test:
+
+```yaml
+controller_frequency: 20.0
+expected_planner_frequency: 20.0
+```
