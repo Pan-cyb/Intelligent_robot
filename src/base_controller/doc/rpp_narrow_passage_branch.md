@@ -86,3 +86,18 @@ use_cost_regulated_linear_velocity_scaling: false
 regulated_linear_scaling_min_radius: 0.45
 regulated_linear_scaling_min_speed: 0.12
 ```
+
+## Collision Prediction Update
+
+The restored motion profile still showed stop-and-go turns in field logs. The relevant controller warning was:
+
+```text
+RegulatedPurePursuitController detected collision ahead!
+```
+
+RPP projects the current command forward for collision checking. In a narrow inflated corridor, a long projection window can repeatedly touch inflated cells even when the visible global path is valid, causing the controller to stop and resume. This branch keeps collision checking enabled but shortens the prediction window:
+
+```yaml
+use_collision_detection: true
+max_allowed_time_to_collision_up_to_carrot: 0.35
+```
