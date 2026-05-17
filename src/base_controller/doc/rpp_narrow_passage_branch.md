@@ -141,7 +141,7 @@ controller_server:
       use_velocity_scaled_lookahead_dist: false
       use_regulated_linear_velocity_scaling: false
       use_cost_regulated_linear_velocity_scaling: false
-      use_collision_detection: false
+      use_collision_detection: true
       max_allowed_time_to_collision_up_to_carrot: 0.35
       use_rotate_to_heading: true
       rotate_to_heading_min_angle: 0.5
@@ -177,3 +177,16 @@ The tuning sequence that led to the final setup:
 8. `rotate_to_heading_min_angle` was restored from `0.20` to `0.5` and `max_angular_accel` from `3.2` to `2.0`, preventing RPP from entering rotate-to-heading behavior too often during normal path turns.
 
 The key lesson is that the final smooth behavior came from separating three issues: obstacle artifact filtering, RPP forward collision projection in inflated narrow corridors, and rotate-to-heading triggering during normal turns.
+
+## Collision Retest
+
+After the final smooth behavior was traced mainly to `rotate_to_heading_min_angle: 0.5`, RPP forward collision detection was re-enabled for a controlled follow-up test:
+
+```yaml
+use_collision_detection: true
+max_allowed_time_to_collision_up_to_carrot: 0.35
+rotate_to_heading_min_angle: 0.5
+max_angular_accel: 2.0
+```
+
+This keeps the final smooth turn parameters and changes only the RPP collision projection state. If `RegulatedPurePursuitController detected collision ahead!` returns with stop-and-go motion, the projection should be disabled again for this map.
