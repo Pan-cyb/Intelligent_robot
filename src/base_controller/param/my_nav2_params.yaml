@@ -154,8 +154,8 @@ controller_server:
       regulated_linear_scaling_min_speed: 0.12
       use_rotate_to_heading: true
       allow_reversing: false
-      rotate_to_heading_min_angle: 0.20
-      max_angular_accel: 3.2
+      rotate_to_heading_min_angle: 0.5
+      max_angular_accel: 2.0
       max_robot_pose_search_dist: 2.0
 
 local_costmap:

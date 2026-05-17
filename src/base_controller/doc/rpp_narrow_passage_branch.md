@@ -115,3 +115,10 @@ Disabling the forward collision projection removed that warning but did not remo
 controller_frequency: 20.0
 expected_planner_frequency: 20.0
 ```
+
+The remaining stop-and-go feel resembled RPP entering rotate-to-heading behavior too often. The smoother baseline used a larger rotate-to-heading threshold and lower angular acceleration, so this branch restores those values:
+
+```yaml
+rotate_to_heading_min_angle: 0.5
+max_angular_accel: 2.0
+```
