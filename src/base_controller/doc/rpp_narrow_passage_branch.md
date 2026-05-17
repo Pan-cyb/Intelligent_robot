@@ -21,7 +21,7 @@ global_costmap.obstacle_layer.scan.obstacle_min_range: 0.12
 
 The lidar driver also filters LaserScan and PointCloud data outside `[range_min, range_max]` to NaN instead of only publishing the limits as metadata.
 
-RPP is made more conservative for narrow passages:
+RPP initially used a more conservative narrow-passage setup:
 
 ```yaml
 desired_linear_vel: 0.20
@@ -34,6 +34,8 @@ use_cost_regulated_linear_velocity_scaling: true
 regulated_linear_scaling_min_radius: 0.35
 regulated_linear_scaling_min_speed: 0.08
 ```
+
+That setup passed the difficult segment, but later testing showed turn motion felt stop-and-go. The likely cause was curvature-based velocity regulation plus a short lookahead, which made RPP reduce linear speed too aggressively while turning.
 
 Local costmap inflation is relaxed to preserve usable local space:
 
@@ -57,7 +59,7 @@ If RPP still fails while the local costmap corridor is visibly open, the repeate
 
 Initial RPP testing passed the narrow passage and terminal rotation worked, but turns could feel stop-and-go. The likely cause is cost-regulated velocity scaling reacting to local costmap values near inflated obstacles. In narrow corridors, small scan/costmap changes can repeatedly reduce and release linear speed.
 
-This branch keeps curvature-based velocity regulation but disables cost-based linear regulation:
+The first smoothness update kept curvature-based velocity regulation but disabled cost-based linear regulation:
 
 ```yaml
 lookahead_dist: 0.34
@@ -70,3 +72,17 @@ regulated_linear_scaling_min_speed: 0.10
 ```
 
 The slightly longer lookahead should reduce steering jitter, while curvature regulation still slows the robot for tight turns.
+
+Further comparison with commit `b2aae44` showed the smoother behavior came from the original RPP motion profile: longer lookahead and no regulated linear velocity scaling. This branch therefore restores those motion-profile parameters while keeping the useful fixes from this branch, such as 0.12 m lidar filtering, smaller local inflation, and the terminal rotation tuning:
+
+```yaml
+desired_linear_vel: 0.26
+lookahead_dist: 0.45
+min_lookahead_dist: 0.35
+max_lookahead_dist: 0.70
+lookahead_time: 0.6
+use_regulated_linear_velocity_scaling: false
+use_cost_regulated_linear_velocity_scaling: false
+regulated_linear_scaling_min_radius: 0.45
+regulated_linear_scaling_min_speed: 0.12
+```
