@@ -135,28 +135,55 @@ controller_server:
       yaw_goal_tolerance: 0.20
 
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.26
-      lookahead_dist: 0.45
-      min_lookahead_dist: 0.35
-      max_lookahead_dist: 0.70
-      lookahead_time: 0.6
-      rotate_to_heading_angular_vel: 1.0
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: False
+
+      min_vel_x: 0.0
+      min_vel_y: 0.0
+      max_vel_x: 0.26
+      max_vel_y: 0.0
+      max_vel_theta: 1.0
+
+      min_speed_xy: 0.0
+      max_speed_xy: 0.26
+      min_speed_theta: 0.0
+
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 3.2
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -3.2
+
+      vx_samples: 24
+      vy_samples: 1
+      vtheta_samples: 32
+      sim_time: 1.0
+      linear_granularity: 0.05
+      angular_granularity: 0.025
       transform_tolerance: 0.2
-      use_velocity_scaled_lookahead_dist: false
-      min_approach_linear_velocity: 0.12
-      approach_velocity_scaling_dist: 0.25
-      use_collision_detection: true
-      max_allowed_time_to_collision_up_to_carrot: 0.8
-      use_regulated_linear_velocity_scaling: false
-      use_cost_regulated_linear_velocity_scaling: false
-      regulated_linear_scaling_min_radius: 0.45
-      regulated_linear_scaling_min_speed: 0.12
-      use_rotate_to_heading: true
-      allow_reversing: false
-      rotate_to_heading_min_angle: 0.5
-      max_angular_accel: 2.0
-      max_robot_pose_search_dist: 2.0
+      xy_goal_tolerance: 0.20
+      trans_stopped_velocity: 0.04
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalAlign", "GoalDist"]
+
+      BaseObstacle.scale: 0.08
+
+      PathAlign.scale: 40.0
+      PathAlign.forward_point_distance: 0.20
+
+      PathDist.scale: 44.0
+
+      GoalAlign.scale: 12.0
+      GoalAlign.forward_point_distance: 0.20
+
+      GoalDist.scale: 10.0
+
+      RotateToGoal.scale: 32.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
 
 local_costmap:
   local_costmap:
