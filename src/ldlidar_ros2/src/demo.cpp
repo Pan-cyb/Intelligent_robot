@@ -267,6 +267,12 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
         point_valid = false;
       }
 
+      if (point_valid && (range < range_min || range > range_max)) {
+        range = std::numeric_limits<float>::quiet_NaN();
+        intensity = std::numeric_limits<float>::quiet_NaN();
+        point_valid = false;
+      }
+
       if (!IsAngleInCropWindow(dir_angle, setting)) { // Mask data outside the retained angle window
         range = std::numeric_limits<float>::quiet_NaN();
         intensity = std::numeric_limits<float>::quiet_NaN();
@@ -389,7 +395,9 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
     float range = dst[i].distance / 1000.f;  // distance unit transform to meters
     float intensity = dst[i].intensity;      // laser receive intensity 
     float dir_angle = ANGLE_TO_RADIAN(dst[i].angle);
-    if (!IsAngleInCropWindow(dst[i].angle, setting)) {
+    if ((dst[i].distance == 0 && dst[i].intensity == 0) ||
+        range < setting.range_min || range > setting.range_max ||
+        !IsAngleInCropWindow(dst[i].angle, setting)) {
       range = std::numeric_limits<float>::quiet_NaN();
       intensity = std::numeric_limits<float>::quiet_NaN();
     }

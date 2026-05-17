@@ -54,15 +54,15 @@ FollowPath:
   min_vel_x: 0.0
   max_vel_x: 0.26
   max_vel_theta: 1.0
-  vx_samples: 24
+  vx_samples: 12
   vy_samples: 1
-  vtheta_samples: 32
-  sim_time: 1.0
+  vtheta_samples: 20
+  sim_time: 0.8
   critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalAlign", "GoalDist"]
-  BaseObstacle.scale: 0.08
-  PathAlign.scale: 40.0
+  BaseObstacle.scale: 0.05
+  PathAlign.scale: 32.0
   PathAlign.forward_point_distance: 0.20
-  PathDist.scale: 44.0
+  PathDist.scale: 36.0
   GoalAlign.scale: 12.0
   GoalAlign.forward_point_distance: 0.20
   GoalDist.scale: 10.0
@@ -83,27 +83,27 @@ FollowPath:
 
 允许足够的角速度做原地旋转和终点姿态调整。
 
-`vx_samples: 24`
+`vx_samples: 12`
 
-线速度采样数。比旧版本 20 略多，让速度选择更细。
+线速度采样数。实测 24 个采样在机器人上容易导致 `Control loop missed its desired rate`，因此降到 12，优先保证控制循环稳定。
 
-`vtheta_samples: 32`
+`vtheta_samples: 20`
 
-角速度采样数。比旧版本 20 更多，让旋转和转弯控制更细。
+角速度采样数。保持旧版本 20，减少 DWB 计算量。
 
 `vy_samples: 1`
 
 差速小车不需要横向速度采样。
 
-`sim_time: 1.0`
+`sim_time: 0.8`
 
-旧版本是 1.7。预测时间太长时，DWB 会看到更远的局部轨迹，可能为了目标点选择更大弯。本分支缩短到 1.0，让局部规划更关注眼前路径跟踪。
+旧版本是 1.7。预测时间太长时，DWB 会看到更远的局部轨迹，可能为了目标点选择更大弯。本分支缩短到 0.8，让局部规划更关注眼前路径跟踪，同时降低计算量。
 
-`PathAlign.scale: 40.0`
+`PathAlign.scale: 32.0`
 
 提高对齐全局路径的权重。这个 critic 鼓励机器人朝全局路径方向走。
 
-`PathDist.scale: 44.0`
+`PathDist.scale: 36.0`
 
 提高距离全局路径的惩罚。这个值高，局部轨迹偏离全局路径会更吃亏。
 
@@ -115,9 +115,39 @@ FollowPath:
 
 降低单纯追目标点距离的权重。旧版本是 24.0，本分支明显降低，避免为了离目标更近而偏离全局路径。
 
-`BaseObstacle.scale: 0.08`
+`BaseObstacle.scale: 0.05`
 
-提高避障代价。旧版本是 0.02，当前更重视离墙和障碍物远一点。
+提高避障代价。旧版本是 0.02，当前更重视离墙和障碍物远一点，但不再设到 0.08，避免在窄通道中过度保守。
+
+## 日志反馈后的修正
+
+实车日志中出现大量：
+
+```text
+Control loop missed its desired rate of 20.0000Hz
+Failed to make progress
+```
+
+这说明第一版 DWB 分支计算负载过高，控制器在 20Hz 下跑不稳，后续行为树开始清 costmap、spin、backup，表现为卡住。
+
+因此本分支后续把：
+
+```yaml
+controller_frequency: 10.0
+vx_samples: 12
+vtheta_samples: 20
+sim_time: 0.8
+```
+
+先保证控制循环能按频率跑起来。DWB 调参时，控制循环稳定比采样精细更重要。
+
+同一轮日志还显示雷达角度裁剪本身是生效的：
+
+```text
+crop=true min=45.0 max=280.0
+```
+
+但驱动原来只把 `range_min/range_max` 写进 LaserScan 元数据，并没有真正过滤小于 `range_min` 或大于 `range_max` 的点。因此 RViz 或 costmap 中仍可能看到靠近坐标轴的短小噪声点。本分支在 `ldlidar_ros2/src/demo.cpp` 中补充了实际范围过滤，超出 `[range_min, range_max]` 的点会被置为 NaN。
 
 `RotateToGoal.scale: 32.0`
 
