@@ -167,7 +167,7 @@ controller_server:
       short_circuit_trajectory_evaluation: True
       stateful: True
 
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalAlign", "GoalDist"]
 
       BaseObstacle.scale: 0.02
 

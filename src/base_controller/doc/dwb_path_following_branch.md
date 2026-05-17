@@ -225,13 +225,13 @@ BaseObstacle.scale: 0.02
 
 第五轮日志出现一个更明确的现象：同一位置附近，选择“大弯目标点”时会卡住，但换一个目标点就能过去。这说明问题不仅是通道宽度，也和最终目标点对 DWB 局部评分的牵引有关。DWB 每次收到目标后，局部轨迹会同时被路径距离、路径朝向、目标距离、目标朝向等 critic 打分；目标点一变，`GoalAlign/GoalDist` 对局部轨迹的偏好也会变。
 
-为了验证“能否让 DWB 几乎只跟全局路径走”，本分支临时从 critic 列表中移除 `GoalAlign` 和 `GoalDist`：
+为了验证“能否让 DWB 几乎只跟全局路径走”，曾临时从 critic 列表中移除 `GoalAlign` 和 `GoalDist`：
 
 ```yaml
 critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist"]
 ```
 
-这样 DWB 的局部前进主要由全局路径和障碍物决定，不再被最终目标点方向强拉。`RotateToGoal` 仍保留，用于终点附近旋转。若这一版明显改善，说明卡住主要来自 goal critic；若仍然卡住，则 DWB 作为主控制器可能不适合这个地图/底盘组合，应回到 RPP 或把大弯任务拆成中间目标点。
+实测结果更差，小车从起始窄段就更难走出。原因是 DWB 缺少 `GoalAlign/GoalDist` 后，只剩贴路径和避障评分，缺少沿路径向前推进的吸引力，在窄通道起点更容易选择低风险但不前进的轨迹。因此本分支恢复 `GoalAlign/GoalDist` 到 critic 列表，但保留较低权重 `6.0`，让它提供推进力，同时不再像早期配置那样强拉最终目标点。
 
 `RotateToGoal.scale: 32.0`
 
