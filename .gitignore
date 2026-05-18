@@ -2,3 +2,12 @@
 !/.gitignore
 !/src/
 !/src/**
+!/runtime/
+!/runtime/rosa_agent/
+!/runtime/rosa_agent/.gitignore
+
+# Local secrets and environment overrides
+.env
+**/.env
+**/.env.*
+!**/.env.example
