@@ -18,21 +18,47 @@ def record_wav(seconds: int | None = None, config: ASRConfig | None = None) -> P
     input()
     print("录音中...")
 
-    subprocess.run(
-        [
+    if config.audio_backend == "pulse":
+        command = [
             "timeout",
             str(duration),
             "parecord",
-            "--device",
-            config.record_device,
-            "--rate=16000",
-            "--channels=1",
+            f"--device={config.audio_input_device}",
+            f"--rate={config.audio_sample_rate}",
+            f"--channels={config.audio_channels}",
             "--format=s16le",
-            "--file-format=wav",
+            f"--file-format={config.audio_format}",
             str(path),
-        ],
-        check=False,
-    )
+        ]
+    elif config.audio_backend == "alsa":
+        command = [
+            "arecord",
+            "-D",
+            config.audio_input_device,
+            "-d",
+            str(duration),
+            "-f",
+            "S16_LE",
+            "-r",
+            config.audio_sample_rate,
+            "-c",
+            config.audio_channels,
+            str(path),
+        ]
+    else:
+        raise ValueError("AUDIO_BACKEND 仅支持 pulse 或 alsa")
+
+    try:
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+    except FileNotFoundError:
+        print(f"\n未找到录音命令：{command[0]}。请安装对应音频工具或检查 AUDIO_BACKEND。")
+        return path
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        print(f"\n录音命令失败，退出码 {result.returncode}：{' '.join(command)}")
+        if stderr:
+            print(f"stderr:\n{stderr}")
 
     print(f"录音完成：{path}")
     return path
@@ -111,7 +137,15 @@ def speak(text: str, config: TTSConfig | None = None) -> None:
             tempfile.NamedTemporaryFile(suffix=f".{config.audio_format}", delete=False).name
         )
         audio_path.write_bytes(audio_bytes)
-        subprocess.run([config.player, str(audio_path)], check=False)
+        command = [config.player, str(audio_path)]
+        if config.player == "aplay" and config.audio_output_device:
+            command = [config.player, "-D", config.audio_output_device, str(audio_path)]
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            print(f"\nTTS 播放命令失败，退出码 {result.returncode}：{' '.join(command)}")
+            if stderr:
+                print(f"stderr:\n{stderr}")
     except FileNotFoundError:
         print(f"\n未找到播放器：{config.player}。可设置 TTS_PLAYER=aplay 或安装 {config.player}。")
     except requests.RequestException as exc:

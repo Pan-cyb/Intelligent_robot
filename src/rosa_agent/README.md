@@ -26,6 +26,39 @@ Runtime logs and pid files are written under:
 
 Copy `src/rosa_agent/.env.example` to `/home/pan/Intelligent_robot/.env` or `src/rosa_agent/.env`, then fill in API keys and model settings.
 
+WSLg PulseAudio audio settings:
+
+```bash
+AUDIO_BACKEND=pulse
+AUDIO_INPUT_DEVICE=RDPSource
+AUDIO_OUTPUT_DEVICE=
+AUDIO_SAMPLE_RATE=16000
+AUDIO_CHANNELS=1
+```
+
+RDK X5 / Linux ALSA audio settings:
+
+```bash
+AUDIO_BACKEND=alsa
+AUDIO_INPUT_DEVICE=plughw:1,0
+AUDIO_OUTPUT_DEVICE=plughw:2,0
+AUDIO_SAMPLE_RATE=16000
+AUDIO_CHANNELS=1
+TTS_PLAYER=aplay
+```
+
+RDK X5 has an onboard ES8326B audio codec/headphone audio interface, but not a complete built-in microphone and speaker setup. For first bring-up, use a USB microphone and USB speaker when possible.
+
+RDK X5 audio device tests:
+
+```bash
+arecord -l
+aplay -l
+arecord -D plughw:1,0 -d 5 -f S16_LE -r 16000 -c 1 test.wav
+aplay test.wav
+aplay -D plughw:2,0 test.wav
+```
+
 Build from the workspace root:
 
 ```bash
@@ -41,4 +74,3 @@ Run:
 ros2 run rosa_agent rosa_cli
 ros2 run rosa_agent rosa_voice_cli
 ```
-

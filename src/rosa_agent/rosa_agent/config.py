@@ -60,6 +60,11 @@ class ASRConfig:
     model: str
     record_device: str
     record_seconds: int
+    audio_backend: str
+    audio_input_device: str
+    audio_sample_rate: str
+    audio_channels: str
+    audio_format: str
 
 
 @dataclass(frozen=True)
@@ -70,6 +75,8 @@ class TTSConfig:
     voice: str
     audio_format: str
     player: str
+    audio_backend: str
+    audio_output_device: str
     enabled: bool
 
 
@@ -89,23 +96,33 @@ def llm_config() -> LLMConfig:
 
 
 def asr_config() -> ASRConfig:
+    audio_input_device = os.getenv("AUDIO_INPUT_DEVICE") or os.getenv("ASR_RECORD_DEVICE", "RDPSource")
     return ASRConfig(
         api_key=os.getenv("ASR_API_KEY") or os.getenv("OPENAI_API_KEY"),
         base_url=os.getenv("ASR_BASE_URL") or os.getenv("OPENAI_BASE_URL"),
         model=os.getenv("ASR_MODEL", "whisper-1"),
-        record_device=os.getenv("ASR_RECORD_DEVICE", "RDPSource"),
+        record_device=audio_input_device,
         record_seconds=int(os.getenv("ASR_RECORD_SECONDS", "5")),
+        audio_backend=os.getenv("AUDIO_BACKEND", "pulse").lower(),
+        audio_input_device=audio_input_device,
+        audio_sample_rate=os.getenv("AUDIO_SAMPLE_RATE", "16000"),
+        audio_channels=os.getenv("AUDIO_CHANNELS", "1"),
+        audio_format=os.getenv("AUDIO_FORMAT", "wav"),
     )
 
 
 def tts_config() -> TTSConfig:
+    audio_backend = os.getenv("AUDIO_BACKEND", "pulse").lower()
+    default_player = "aplay" if audio_backend == "alsa" else "paplay"
     return TTSConfig(
         api_key=os.getenv("TTS_API_KEY"),
         base_url=os.getenv("TTS_BASE_URL", "https://api.xiaomimimo.com/v1"),
         model=os.getenv("TTS_MODEL", "mimo-v2.5-tts"),
         voice=os.getenv("TTS_VOICE", "mimo_default"),
-        audio_format=os.getenv("TTS_FORMAT", "wav"),
-        player=os.getenv("TTS_PLAYER", "paplay"),
+        audio_format=os.getenv("TTS_FORMAT") or os.getenv("AUDIO_FORMAT", "wav"),
+        player=os.getenv("TTS_PLAYER", default_player),
+        audio_backend=audio_backend,
+        audio_output_device=os.getenv("AUDIO_OUTPUT_DEVICE", ""),
         enabled=env_bool("TTS_ENABLED", False),
     )
 
