@@ -38,7 +38,7 @@ base_controller/srv/DeletePose
 默认保存文件：
 
 ```text
-<base_controller share>/named_poses.yaml
+/home/pan/Intelligent_robot/src/base_controller/maps/named_poses.yaml
 ```
 
 可以通过节点参数 `poses_file` 指定保存位置。
@@ -122,6 +122,14 @@ velocity_smoother
 maps/my_map1.yaml
 rviz/waypoint_calibration.rviz
 ```
+
+命名点 YAML 默认保存到源码目录：
+
+```text
+/home/pan/Intelligent_robot/src/base_controller/maps/named_poses.yaml
+```
+
+这样不会只写到 `install/` 构建产物里，后续 clean build 或迁移项目时不容易丢。
 
 专用 RViz 配置已经把 `2D Goal Pose` 的输出话题设置为：
 
@@ -301,7 +309,41 @@ living_room_sofa:
     w: 1.0
 ```
 
-当前最小可用版本保存四元数，不单独保存 yaw。`task_manager` 后续读取 `PoseStamped` 时可以直接用于 Nav2。
+当前版本保存四元数，不单独保存 yaw。`waypoint_manager/get_pose` 会直接返回 `PoseStamped`，可以直接用于 Nav2。
+
+如果后续代码需要 yaw，也可以由四元数转换得到：
+
+```text
+yaw = atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+```
+
+当前 `task_manager` 已兼容两种格式：
+
+```yaml
+locations:
+  bedroom:
+    frame_id: map
+    x: 1.0
+    y: 2.0
+    yaw: 0.0
+```
+
+以及 waypoint 标定生成的格式：
+
+```yaml
+locations:
+  bedroom_bedside:
+    frame_id: map
+    position:
+      x: 2.31
+      y: -1.42
+      z: 0.0
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.707
+      w: 0.707
+```
 
 ## 坐标系要求
 

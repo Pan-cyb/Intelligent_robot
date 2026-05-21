@@ -127,14 +127,42 @@ class TaskManagerNode(Node):
 
         locations: dict[str, NamedLocation] = {}
         for name, value in locations_raw.items():
+            x, y, yaw = self._parse_location_pose(name, value)
             locations[name] = NamedLocation(
                 name=name,
                 frame_id=str(value.get("frame_id", "map")),
-                x=float(value["x"]),
-                y=float(value["y"]),
-                yaw=float(value.get("yaw", 0.0)),
+                x=x,
+                y=y,
+                yaw=yaw,
             )
         return locations
+
+    def _parse_location_pose(self, name: str, value: dict[str, Any]) -> tuple[float, float, float]:
+        if "position" in value:
+            position = value["position"]
+            orientation = value.get("orientation", {})
+            return (
+                float(position["x"]),
+                float(position["y"]),
+                self._quaternion_to_yaw(
+                    float(orientation.get("x", 0.0)),
+                    float(orientation.get("y", 0.0)),
+                    float(orientation.get("z", 0.0)),
+                    float(orientation.get("w", 1.0)),
+                ),
+            )
+
+        if "x" in value and "y" in value:
+            return (
+                float(value["x"]),
+                float(value["y"]),
+                float(value.get("yaw", 0.0)),
+            )
+
+        raise RuntimeError(
+            "Invalid location format for %s. Expected x/y/yaw or position/orientation."
+            % name
+        )
 
     def _auto_start_demo_once(self) -> None:
         if self._demo_timer is not None:
@@ -182,7 +210,7 @@ class TaskManagerNode(Node):
 
         task = RobotTask(
             task_id="wakeup_bedroom",
-            location_name="bedroom",
+            location_name="bedroom_bedside",
             speech_text="早上好，该起床了。",
         )
         self._active_task = task
@@ -368,6 +396,12 @@ class TaskManagerNode(Node):
         q.z = math.sin(yaw / 2.0)
         q.w = math.cos(yaw / 2.0)
         return q
+
+    @staticmethod
+    def _quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
+        siny_cosp = 2.0 * (w * z + x * y)
+        cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+        return math.atan2(siny_cosp, cosy_cosp)
 
     @staticmethod
     def _goal_status_name(status: int) -> str:

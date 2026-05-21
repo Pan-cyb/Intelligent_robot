@@ -11,7 +11,13 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("base_controller")
     map_path = os.path.join(pkg_share, "my_map1.yaml")
     rviz_config = os.path.join(pkg_share, "waypoint_calibration.rviz")
-    poses_file = os.path.join(pkg_share, "named_poses.yaml")
+    workspace_root = os.path.abspath(os.path.join(pkg_share, "..", "..", "..", ".."))
+    source_poses_file = os.path.join(workspace_root, "src", "base_controller", "maps", "named_poses.yaml")
+    poses_file = (
+        source_poses_file
+        if os.path.exists(os.path.dirname(source_poses_file))
+        else os.path.join(pkg_share, "named_poses.yaml")
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     map_file = LaunchConfiguration("map")
