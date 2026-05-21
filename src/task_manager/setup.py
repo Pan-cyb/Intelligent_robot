@@ -21,7 +21,6 @@ setup(
     maintainer_email="pan@example.com",
     description="Minimal task manager demo for elderly companion robot task execution.",
     license="MIT",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "task_manager_node = task_manager.task_manager_node:main",

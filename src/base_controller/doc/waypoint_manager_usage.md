@@ -83,29 +83,74 @@ source install/setup.bash
 source /opt/ros/humble/setup.bash
 ```
 
-## 启动地图、定位和 RViz
+## 一键启动标定模式
 
-使用现有导航启动文件：
+推荐使用专门的标定启动文件：
 
 ```bash
 cd /home/pan/Intelligent_robot
 source install/setup.bash
-ros2 launch base_controller navigation.launch.py
+ros2 launch base_controller waypoint_calibration.launch.py
 ```
 
-该启动文件会加载 `base_controller` 包中的地图、Nav2、AMCL、RViz 等内容。
+这个启动文件只启动：
 
-当前 `navigation.launch.py` 中使用的地图和参数来自 `base_controller` 包内配置：
+```text
+map_server
+lifecycle_manager
+rviz2
+waypoint_manager
+```
+
+不会启动：
+
+```text
+base_controller_node
+雷达驱动
+AMCL
+planner_server
+controller_server
+bt_navigator
+velocity_smoother
+```
+
+因此它不会控制底盘，也不会触发 Nav2 导航，适合单独做命名点标定。
+
+当前 `waypoint_calibration.launch.py` 默认使用 `base_controller` 包内地图和 RViz 配置：
 
 ```text
 maps/my_map1.yaml
-param/my_nav2_params.yaml
-rviz/navigation.rviz
+rviz/waypoint_calibration.rviz
 ```
 
-## 启动 waypoint_manager
+专用 RViz 配置已经把 `2D Goal Pose` 的输出话题设置为：
 
-另开一个终端：
+```text
+/waypoint_goal
+```
+
+所以一键启动后，可以直接在 RViz 中用 `2D Goal Pose` 点选位置和朝向。
+
+如果要指定其他地图：
+
+```bash
+ros2 launch base_controller waypoint_calibration.launch.py \
+  map:=/home/pan/Intelligent_robot/src/base_controller/maps/my_map1.yaml
+```
+
+如果要指定命名点 YAML 保存路径：
+
+```bash
+ros2 launch base_controller waypoint_calibration.launch.py \
+  poses_file:=/home/pan/Intelligent_robot/src/base_controller/maps/named_poses.yaml
+```
+
+## 单独启动 waypoint_manager
+
+`waypoint_manager` 节点本身不依赖导航节点，也不依赖 Nav2。它只需要有人向 `/waypoint_goal` 发布 `geometry_msgs/msg/PoseStamped`，并且 `frame_id` 是 `map`。
+
+如果不需要一键标定环境，也可以只启动节点：
+
 
 ```bash
 cd /home/pan/Intelligent_robot
@@ -128,12 +173,24 @@ ros2 run base_controller waypoint_manager --ros-args \
   -p map_frame:=map
 ```
 
+手动发布一个测试点：
+
+```bash
+ros2 topic pub --once /waypoint_goal geometry_msgs/msg/PoseStamped "{
+  header: {frame_id: 'map'},
+  pose: {
+    position: {x: 1.0, y: 2.0, z: 0.0},
+    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
+  }
+}"
+```
+
 ## RViz 点选方式
 
 1. 打开 RViz。
 2. 找到工具栏中的 `2D Goal Pose`。
-3. 不要让它发布到 Nav2 默认的 `/goal_pose`。
-4. 把 `2D Goal Pose` 的输出话题改成：
+3. 如果使用 `waypoint_calibration.launch.py`，话题已经默认是 `/waypoint_goal`。
+4. 如果使用其他 RViz 配置，不要让它发布到 Nav2 默认的 `/goal_pose`，需要手动改成：
 
 ```text
 /waypoint_goal
@@ -256,33 +313,26 @@ living_room_sofa:
 
 ## 典型标定流程
 
-1. 启动导航：
+1. 启动一键标定模式：
 
 ```bash
-ros2 launch base_controller navigation.launch.py
+ros2 launch base_controller waypoint_calibration.launch.py
 ```
 
-2. 启动 waypoint_manager：
-
-```bash
-ros2 run base_controller waypoint_manager
-```
-
-3. 在 RViz 中把 `2D Goal Pose` 的输出话题改成 `/waypoint_goal`。
-4. 在地图上点击并拖动，选择目标位置和朝向。
-5. 保存命名点：
+2. 在 RViz 中使用 `2D Goal Pose` 点击并拖动，选择目标位置和朝向。
+3. 保存命名点：
 
 ```bash
 ros2 service call /waypoint_manager/save_last_goal base_controller/srv/SavePose "{name: 'bedroom_bedside'}"
 ```
 
-6. 查看已保存点：
+4. 查看已保存点：
 
 ```bash
 ros2 service call /waypoint_manager/list_poses base_controller/srv/ListPoses "{}"
 ```
 
-7. 读取指定点：
+5. 读取指定点：
 
 ```bash
 ros2 service call /waypoint_manager/get_pose base_controller/srv/GetPose "{name: 'bedroom_bedside'}"

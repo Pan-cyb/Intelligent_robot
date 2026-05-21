@@ -18,7 +18,6 @@ setup(
     maintainer_email="pan@example.com",
     description="ROSA agent CLI and voice CLI for the Intelligent_robot ROS2 workspace.",
     license="MIT",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "rosa_cli = rosa_agent.cli:main",

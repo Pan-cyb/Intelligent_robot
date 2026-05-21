@@ -1,7 +1,7 @@
 # ROSA Agent 语音使用说明
 
 本文档说明 `rosa_agent` 语音部分的常见使用方法，包括 WSLg PulseAudio 和 RDK X5 / Linux ALSA 两套音频配置。
-
+python3 -m pip install --user jpl-rosa python-dotenv langchain-openai openai requests 记得先装依赖
 ## 环境变量文件
 
 先从示例文件复制一份 `.env`：
