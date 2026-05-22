@@ -45,6 +45,47 @@ def _ros_command(args) -> str:
     return f"source {shlex.quote(ros_setup_path())} && {shlex.join(args)}"
 
 
+def _call_robot_start_task(task_type: str, target: str = "", text: str = "") -> str:
+    yaml_text = (
+        "{"
+        f"task_type: {shlex.quote(task_type)}, "
+        f"target: {shlex.quote(target)}, "
+        f"text: {shlex.quote(text)}"
+        "}"
+    )
+    return run_ros2_command.invoke(
+        {
+            "command": (
+                "ros2 service call /robot_server/start_task "
+                "task_manager_interfaces/srv/StartTask "
+                f"{shlex.quote(yaml_text)}"
+            )
+        }
+    )
+
+
+def _call_robot_trigger(service_name: str) -> str:
+    return run_ros2_command.invoke(
+        {
+            "command": (
+                f"ros2 service call {service_name} "
+                "std_srvs/srv/Trigger {}"
+            )
+        }
+    )
+
+
+def _call_robot_query_state() -> str:
+    return run_ros2_command.invoke(
+        {
+            "command": (
+                "ros2 service call /robot_server/query_robot_state "
+                "task_manager_interfaces/srv/QueryRobotState {}"
+            )
+        }
+    )
+
+
 def _resolve_workspace_path(path_text: str) -> Path:
     root = workspace_root()
     raw = Path(path_text).expanduser()
@@ -116,6 +157,52 @@ def run_ros2_command(command: str) -> str:
             "Command timed out after 20 seconds. "
             "For long-running processes, use launch_ros2_file."
         )
+
+
+@tool
+def start_wakeup_task(_: str = "") -> str:
+    """
+    Start the high-level wake-up task through the robot server.
+
+    The robot server owns the state machine, named-place lookup, Nav2 call,
+    and arrival speech.
+    """
+    return _call_robot_start_task("wake_up", "bedroom_bedside", "")
+
+
+@tool
+def navigate_to_named_place(place_name: str) -> str:
+    """
+    Ask the robot server to navigate to a named place.
+
+    Examples: bedroom_bedside, livingroom_sofa, charger_front,
+    medicine_box_front.
+    """
+    return _call_robot_start_task("navigate", place_name.strip(), "")
+
+
+@tool
+def speak_text(text: str) -> str:
+    """
+    Ask the robot server to speak one sentence.
+    """
+    return _call_robot_start_task("speak", "", text.strip())
+
+
+@tool
+def cancel_current_task(_: str = "") -> str:
+    """
+    Cancel the robot server's current high-level task.
+    """
+    return _call_robot_trigger("/robot_server/cancel_current_task")
+
+
+@tool
+def query_robot_state(_: str = "") -> str:
+    """
+    Query the robot server mode, active task, target, navigation flag, and last error.
+    """
+    return _call_robot_query_state()
 
 
 @tool
@@ -308,13 +395,9 @@ def list_workspace_files(path_text: str = ".") -> str:
 
 
 DEFAULT_TOOLS = [
-    run_ros2_command,
-    launch_ros2_file,
-    start_ros2_node,
-    stop_ros2_process,
-    list_started_ros2_processes,
-    write_workspace_file,
-    read_workspace_file,
-    list_workspace_files,
+    start_wakeup_task,
+    navigate_to_named_place,
+    speak_text,
+    cancel_current_task,
+    query_robot_state,
 ]
-

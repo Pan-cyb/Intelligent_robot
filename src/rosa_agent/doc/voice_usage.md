@@ -216,6 +216,35 @@ ros2 run rosa_agent rosa_cli
 ros2 run rosa_agent rosa_voice_cli
 ```
 
+常驻语音代理：
+
+```bash
+ros2 run rosa_agent rosa_always_listen
+```
+
+交互流程：
+
+```text
+WAIT_WAKE_WORD  只监听“小金”
+SPEAK_ACK       检测到“小金”后播放“我在。”
+LISTEN_COMMAND  播放结束后监听下一句话
+PROCESS_COMMAND 调用 agent.invoke(command_text)，再播放 ROSA 回复
+```
+
+常驻语音代理使用简单音量阈值 VAD。可在 `.env` 中调节：
+
+```bash
+ASR_VAD_THRESHOLD=700
+ASR_VAD_START_FRAMES=2
+ASR_VAD_SILENCE_MS=900
+ASR_VAD_PRE_ROLL_MS=300
+ASR_VAD_MAX_SECONDS=8
+ASR_VAD_LISTEN_TIMEOUT_SEC=0
+ASR_COMMAND_LISTEN_TIMEOUT_SEC=8
+```
+
+`ASR_VAD_LISTEN_TIMEOUT_SEC=0` 表示等待唤醒词时一直监听。`ASR_COMMAND_LISTEN_TIMEOUT_SEC` 控制唤醒后等待命令的时间窗口。
+
 ASR 测试入口：
 
 ```bash

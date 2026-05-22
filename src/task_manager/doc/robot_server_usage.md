@@ -1,6 +1,6 @@
 # 养老陪伴机器人最小闭环服务端使用说明
 
-本文档说明如何把导航系统、`task_manager` 和语音播报节点整合为一个“服务端”，再用另一个终端作为“命令端”发布任务。
+本文档说明如何把导航系统、`task_manager` 和语音播报节点整合为一个“服务端”，再通过高层 service 发布任务。
 
 ## 当前架构
 
@@ -13,8 +13,9 @@
   rosa_agent/tts_node
 
 命令端：
-  ros2 service call /trigger_wakeup_task
-  或 ros2 topic pub /task_command
+  ros2 service call /robot_server/start_task
+  ros2 service call /robot_server/cancel_current_task
+  ros2 service call /robot_server/query_robot_state
 ```
 
 服务端负责：
@@ -42,13 +43,16 @@ MANUAL
 FAULT
 ```
 
-最小叫醒任务流程：
+叫醒任务流程：
 
 ```text
-收到 wakeup_bedroom
+收到 task_type=wake_up
+  -> SCHEDULED_TASK
   -> 读取命名地点
+  -> NAVIGATION
   -> 发送 Nav2 NavigateToPose
   -> 等待导航结果
+  -> CONVERSATION
   -> 到达后发布 /tts_text
   -> TTS 播报
   -> 回到 IDLE
@@ -114,39 +118,55 @@ locations:
       w: 0.0064
 ```
 
-## 需要检查的任务目标名
+## 高层任务接口
 
-当前叫醒任务在代码中配置目标地点。
+`task_manager_interfaces` 提供 robot 服务端高层接口。
 
-文件：
+启动任务：
 
 ```text
-src/task_manager/task_manager/task_manager_node.py
+/robot_server/start_task
+task_manager_interfaces/srv/StartTask
 ```
 
-找到：
+请求字段：
 
-```python
-task = RobotTask(
-    task_id="wakeup_bedroom",
-    location_name="bedroom",
-    speech_text="早上好，该起床了。",
-)
+```text
+string task_type
+string target
+string text
 ```
 
-`location_name` 必须和 `named_locations.yaml` 里的 key 一致。
+任务类型：
 
-如果你的真实点是：
-
-```yaml
-locations:
-  bedroom_bedside:
+```text
+task_type="wake_up"   叫醒任务，默认目标 bedroom_bedside，到达后播报“早上好，该起床了。”
+task_type="navigate"  导航到 target 指定的命名点
+task_type="speak"     播放 text 指定文本
 ```
 
-则应改为：
+取消任务：
 
-```python
-location_name="bedroom_bedside"
+```text
+/robot_server/cancel_current_task
+std_srvs/srv/Trigger
+```
+
+查询状态：
+
+```text
+/robot_server/query_robot_state
+task_manager_interfaces/srv/QueryRobotState
+```
+
+返回：
+
+```text
+mode
+current_task
+target
+is_navigating
+last_error
 ```
 
 ## 编译
@@ -154,7 +174,7 @@ location_name="bedroom_bedside"
 ```bash
 cd /home/pan/Intelligent_robot
 source /opt/ros/humble/setup.bash
-colcon build --packages-select base_controller rosa_agent task_manager
+colcon build --packages-select base_controller rosa_agent task_manager_interfaces task_manager
 source install/setup.bash
 ```
 
@@ -187,15 +207,28 @@ cd /home/pan/Intelligent_robot
 source install/setup.bash
 ```
 
-用 service 触发叫醒任务：
+用高层 service 触发叫醒任务：
+
+```bash
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'wake_up', target: 'bedroom_bedside', text: ''}"
+```
+
+导航到命名点：
+
+```bash
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'navigate', target: 'livingroom_sofa', text: ''}"
+```
+
+播放文本：
+
+```bash
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'speak', target: '', text: '您好，我在这里。'}"
+```
+
+旧入口仍保留用于兼容历史 wakeup/cancel 测试，不作为新任务扩展入口：
 
 ```bash
 ros2 service call /trigger_wakeup_task std_srvs/srv/Trigger {}
-```
-
-或用 topic 触发：
-
-```bash
 ros2 topic pub --once /task_command std_msgs/msg/String "{data: wakeup_bedroom}"
 ```
 
@@ -205,6 +238,12 @@ ros2 topic pub --once /task_command std_msgs/msg/String "{data: wakeup_bedroom}"
 
 ```bash
 ros2 topic echo /robot_mode
+```
+
+查询完整状态：
+
+```bash
+ros2 service call /robot_server/query_robot_state task_manager_interfaces/srv/QueryRobotState {}
 ```
 
 查看任务命令话题：
@@ -220,6 +259,12 @@ ros2 topic echo /tts_text
 ```
 
 ## 取消任务
+
+```bash
+ros2 service call /robot_server/cancel_current_task std_srvs/srv/Trigger {}
+```
+
+旧入口仍保留：
 
 ```bash
 ros2 service call /cancel_task std_srvs/srv/Trigger {}
@@ -265,8 +310,8 @@ ros2 launch task_manager robot_server.launch.py task_command_topic:=/task_comman
 1. 服务端启动成功。
 2. Nav2 可用，RViz 中地图正常。
 3. `/robot_mode` 初始为 `IDLE`。
-4. 命令端发布 `wakeup_bedroom`。
-5. `task_manager` 进入 `NAVIGATION`。
+4. 命令端调用 `/robot_server/start_task`。
+5. `task_manager` 进入 `SCHEDULED_TASK`，随后进入 `NAVIGATION`。
 6. 机器人导航到命名点。
 7. 到达后 `task_manager` 发布 `/tts_text`。
 8. `tts_node` 播放语音。
@@ -274,18 +319,14 @@ ros2 launch task_manager robot_server.launch.py task_command_topic:=/task_comman
 
 ## 和语音命令的关系
 
-当前最小闭环先用命令端手动发布任务。
-
-语音功能跑通后，可以让语音理解结果最终发布：
+ROSA action tools 只暴露高层工具：
 
 ```text
-/task_command
+start_wakeup_task()
+navigate_to_named_place(place_name)
+speak_text(text)
+cancel_current_task()
+query_robot_state()
 ```
 
-例如：
-
-```text
-wakeup_bedroom
-```
-
-这样语音端只负责“理解用户意图并发任务”，服务端继续由 `task_manager` 统一调度导航和播报。
+这些工具内部只调用 robot 服务端高层 service。ROSA / LLM 不直接调用 Nav2，不直接发 `/cmd_vel`，不排列组合底层 service。
