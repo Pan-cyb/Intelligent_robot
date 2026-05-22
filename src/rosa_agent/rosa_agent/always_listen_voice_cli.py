@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from rosa_agent.agent import create_agent
+from rosa_agent.cli import route_high_level_command
 from rosa_agent.config import asr_config, tts_config
 from rosa_agent.voice import record_wav_vad, speak, transcribe
 
@@ -73,7 +74,9 @@ def main() -> None:
                 continue
 
             print(f"\n命令：{command_text}")
-            reply = agent.invoke(command_text)
+            reply = route_high_level_command(command_text)
+            if reply is None:
+                reply = agent.invoke(command_text)
             print(f"\nROSA：{reply}")
             _speak_safely(str(reply), tts)
 

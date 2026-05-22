@@ -175,8 +175,12 @@ def navigate_to_named_place(place_name: str) -> str:
     """
     Ask the robot server to navigate to a named place.
 
-    Examples: bedroom_bedside, livingroom_sofa, charger_front,
-    medicine_box_front.
+    Valid place_name values in the current map:
+    bedroom_bedside, livingroom_sofa, charger, kitchen.
+
+    Use charger for requests such as returning to charge or going back to the
+    charging dock. Do not invent names such as charger_front unless the map
+    contains that exact key.
     """
     return _call_robot_start_task("navigate", place_name.strip(), "")
 
