@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from rosa_agent.agent import create_agent
 from rosa_agent.cli import route_high_level_command
@@ -8,6 +9,18 @@ from rosa_agent.voice import record_wav_vad, speak, transcribe
 
 WAKE_WORD = "小金"
 MIN_COMMAND_LENGTH = 2
+NOISE_TEXTS = {
+    "啊",
+    "嗯",
+    "呃",
+    "额",
+    "哦",
+    "喂",
+    "唉",
+    "诶",
+    "嗯嗯",
+    "啊啊",
+}
 
 
 def _cleanup_audio(path: Path | None) -> None:
@@ -41,6 +54,40 @@ def _speak_safely(text: str, tts) -> None:
         print(f"\nTTS 播放失败：{exc}")
 
 
+def _normalize_asr_text(text: str) -> str:
+    return text.strip().strip(" 。！？!?，,：:")
+
+
+def _is_noise_command(text: str) -> bool:
+    normalized = _normalize_asr_text(text)
+    if len(normalized) < MIN_COMMAND_LENGTH:
+        return True
+    return normalized in NOISE_TEXTS
+
+
+def _listen_command_until_valid(asr) -> str:
+    deadline = time.monotonic() + max(1, asr.command_window_sec)
+    attempt = 1
+    while time.monotonic() < deadline:
+        remaining = max(1, int(deadline - time.monotonic()))
+        timeout = min(asr.command_listen_timeout_sec, remaining)
+        command_text = _listen_and_transcribe(
+            f"LISTEN_COMMAND：请说命令... attempt={attempt}",
+            asr,
+            listen_timeout_sec=timeout,
+        )
+        normalized = _normalize_asr_text(command_text)
+        if not normalized:
+            attempt += 1
+            continue
+        if _is_noise_command(normalized):
+            print(f"忽略疑似噪声命令：{normalized}")
+            attempt += 1
+            continue
+        return normalized
+    return ""
+
+
 def main() -> None:
     agent = create_agent()
     asr = asr_config()
@@ -62,13 +109,11 @@ def main() -> None:
 
             print("SPEAK_ACK：我在。")
             _speak_safely("我在。", tts)
+            if asr.post_tts_cooldown_sec > 0:
+                time.sleep(asr.post_tts_cooldown_sec)
 
-            command_text = _listen_and_transcribe(
-                "LISTEN_COMMAND：请说命令...",
-                asr,
-                listen_timeout_sec=asr.command_listen_timeout_sec,
-            )
-            if len(command_text.strip()) < MIN_COMMAND_LENGTH:
+            command_text = _listen_command_until_valid(asr)
+            if not command_text:
                 print("没有听清楚。")
                 _speak_safely("没有听清楚。", tts)
                 continue

@@ -245,6 +245,10 @@ ASR_COMMAND_LISTEN_TIMEOUT_SEC=8
 
 `ASR_VAD_LISTEN_TIMEOUT_SEC=0` 表示等待唤醒词时一直监听。`ASR_COMMAND_LISTEN_TIMEOUT_SEC` 控制唤醒后等待命令的时间窗口。
 
+常驻语音代理在命令窗口中会忽略极短 ASR 文本和常见噪声词，例如“啊”“嗯”“呃”。如果被噪声误触发，它会继续在命令窗口内等待下一句话，直到收到有效命令或窗口超时。
+
+常见机器人命令会先走本地高层路由，不要求用户逐字说固定命令。例如包含“充电”“回充”“充电桩”的命令都会映射到当前地图中的 `charger`；包含“客厅”或“沙发”的命令会映射到 `livingroom_sofa`。
+
 ASR 测试入口：
 
 ```bash

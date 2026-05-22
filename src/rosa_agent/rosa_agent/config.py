@@ -72,6 +72,8 @@ class ASRConfig:
     vad_max_seconds: int
     vad_listen_timeout_sec: int
     command_listen_timeout_sec: int
+    command_window_sec: int
+    post_tts_cooldown_sec: float
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,8 @@ def asr_config() -> ASRConfig:
         vad_max_seconds=int(os.getenv("ASR_VAD_MAX_SECONDS", "8")),
         vad_listen_timeout_sec=int(os.getenv("ASR_VAD_LISTEN_TIMEOUT_SEC", "0")),
         command_listen_timeout_sec=int(os.getenv("ASR_COMMAND_LISTEN_TIMEOUT_SEC", "8")),
+        command_window_sec=int(os.getenv("ASR_COMMAND_WINDOW_SEC", "10")),
+        post_tts_cooldown_sec=float(os.getenv("ASR_POST_TTS_COOLDOWN_SEC", "0.4")),
     )
 
 
