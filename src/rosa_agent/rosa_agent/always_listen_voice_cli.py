@@ -49,7 +49,7 @@ def main() -> None:
 
     while True:
         try:
-            wake_text = _listen_and_transcribe("WAIT_WAKE_WORD：监听唤醒词...")
+            wake_text = _listen_and_transcribe("WAIT_WAKE_WORD：监听唤醒词...", asr)
             if not wake_text:
                 continue
 
