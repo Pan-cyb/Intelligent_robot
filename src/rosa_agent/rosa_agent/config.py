@@ -65,6 +65,15 @@ class ASRConfig:
     audio_sample_rate: str
     audio_channels: str
     audio_format: str
+    vad_threshold: int
+    vad_start_frames: int
+    vad_silence_ms: int
+    vad_pre_roll_ms: int
+    vad_max_seconds: int
+    vad_listen_timeout_sec: int
+    command_listen_timeout_sec: int
+    command_window_sec: int
+    post_tts_cooldown_sec: float
 
 
 @dataclass(frozen=True)
@@ -108,6 +117,15 @@ def asr_config() -> ASRConfig:
         audio_sample_rate=os.getenv("AUDIO_SAMPLE_RATE", "16000"),
         audio_channels=os.getenv("AUDIO_CHANNELS", "1"),
         audio_format=os.getenv("AUDIO_FORMAT", "wav"),
+        vad_threshold=int(os.getenv("ASR_VAD_THRESHOLD", "700")),
+        vad_start_frames=int(os.getenv("ASR_VAD_START_FRAMES", "2")),
+        vad_silence_ms=int(os.getenv("ASR_VAD_SILENCE_MS", "900")),
+        vad_pre_roll_ms=int(os.getenv("ASR_VAD_PRE_ROLL_MS", "300")),
+        vad_max_seconds=int(os.getenv("ASR_VAD_MAX_SECONDS", "8")),
+        vad_listen_timeout_sec=int(os.getenv("ASR_VAD_LISTEN_TIMEOUT_SEC", "0")),
+        command_listen_timeout_sec=int(os.getenv("ASR_COMMAND_LISTEN_TIMEOUT_SEC", "8")),
+        command_window_sec=int(os.getenv("ASR_COMMAND_WINDOW_SEC", "10")),
+        post_tts_cooldown_sec=float(os.getenv("ASR_POST_TTS_COOLDOWN_SEC", "0.4")),
     )
 
 

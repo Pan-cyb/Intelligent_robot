@@ -216,6 +216,39 @@ ros2 run rosa_agent rosa_cli
 ros2 run rosa_agent rosa_voice_cli
 ```
 
+常驻语音代理：
+
+```bash
+ros2 run rosa_agent rosa_always_listen
+```
+
+交互流程：
+
+```text
+WAIT_WAKE_WORD  只监听“小金”
+SPEAK_ACK       检测到“小金”后播放“我在。”
+LISTEN_COMMAND  播放结束后监听下一句话
+PROCESS_COMMAND 调用 agent.invoke(command_text)，再播放 ROSA 回复
+```
+
+常驻语音代理使用简单音量阈值 VAD。可在 `.env` 中调节：
+
+```bash
+ASR_VAD_THRESHOLD=700
+ASR_VAD_START_FRAMES=2
+ASR_VAD_SILENCE_MS=900
+ASR_VAD_PRE_ROLL_MS=300
+ASR_VAD_MAX_SECONDS=8
+ASR_VAD_LISTEN_TIMEOUT_SEC=0
+ASR_COMMAND_LISTEN_TIMEOUT_SEC=8
+```
+
+`ASR_VAD_LISTEN_TIMEOUT_SEC=0` 表示等待唤醒词时一直监听。`ASR_COMMAND_LISTEN_TIMEOUT_SEC` 控制唤醒后等待命令的时间窗口。
+
+常驻语音代理在命令窗口中会忽略极短 ASR 文本和常见噪声词，例如“啊”“嗯”“呃”。如果被噪声误触发，它会继续在命令窗口内等待下一句话，直到收到有效命令或窗口超时。
+
+常见机器人命令会先走本地高层路由，不要求用户逐字说固定命令。例如包含“充电”“回充”“充电桩”的命令都会映射到当前地图中的 `charger`；包含“客厅”或“沙发”的命令会映射到 `livingroom_sofa`。
+
 ASR 测试入口：
 
 ```bash

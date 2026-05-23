@@ -1,12 +1,149 @@
 import base64
+from collections import deque
+import audioop
 import subprocess
 import tempfile
+import time
+import wave
 from pathlib import Path
 
 from openai import OpenAI
 import requests
 
 from rosa_agent.config import ASRConfig, TTSConfig, asr_config, tts_config
+
+
+def _record_raw_command(config: ASRConfig) -> list[str]:
+    sample_rate = str(config.audio_sample_rate)
+    channels = str(config.audio_channels)
+    if config.audio_backend == "pulse":
+        return [
+            "parecord",
+            f"--device={config.audio_input_device}",
+            f"--rate={sample_rate}",
+            f"--channels={channels}",
+            "--format=s16le",
+            "--raw",
+        ]
+    if config.audio_backend == "alsa":
+        return [
+            "arecord",
+            "-D",
+            config.audio_input_device,
+            "-f",
+            "S16_LE",
+            "-r",
+            sample_rate,
+            "-c",
+            channels,
+            "-t",
+            "raw",
+        ]
+    raise ValueError("AUDIO_BACKEND 仅支持 pulse 或 alsa")
+
+
+def record_wav_vad(
+    config: ASRConfig | None = None,
+    prompt: str = "监听中...",
+    listen_timeout_sec: int | None = None,
+) -> Path | None:
+    config = config or asr_config()
+    sample_rate = int(config.audio_sample_rate)
+    channels = int(config.audio_channels)
+    sample_width = 2
+    frame_ms = 100
+    frame_bytes = int(sample_rate * channels * sample_width * frame_ms / 1000)
+    silence_frames_needed = max(1, int(config.vad_silence_ms / frame_ms))
+    pre_roll_frames = max(0, int(config.vad_pre_roll_ms / frame_ms))
+    max_frames = max(1, int(config.vad_max_seconds * 1000 / frame_ms))
+    listen_deadline = None
+    timeout_sec = config.vad_listen_timeout_sec if listen_timeout_sec is None else listen_timeout_sec
+    if timeout_sec > 0:
+        listen_deadline = time.monotonic() + timeout_sec
+
+    command = _record_raw_command(config)
+    path = Path(tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name)
+    process = None
+    heard_frames: list[bytes] = []
+    pre_roll: deque[bytes] = deque(maxlen=pre_roll_frames)
+    speech_started = False
+    loud_frames = 0
+    silence_frames = 0
+
+    print(prompt)
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        print(f"\n未找到录音命令：{command[0]}。请安装对应音频工具或检查 AUDIO_BACKEND。")
+        path.unlink(missing_ok=True)
+        return None
+
+    try:
+        if process.stdout is None:
+            path.unlink(missing_ok=True)
+            return None
+
+        while True:
+            if listen_deadline is not None and not speech_started and time.monotonic() > listen_deadline:
+                path.unlink(missing_ok=True)
+                return None
+
+            chunk = process.stdout.read(frame_bytes)
+            if not chunk:
+                break
+
+            rms = audioop.rms(chunk, sample_width)
+            is_loud = rms >= config.vad_threshold
+
+            if not speech_started:
+                pre_roll.append(chunk)
+                if is_loud:
+                    loud_frames += 1
+                else:
+                    loud_frames = 0
+
+                if loud_frames >= config.vad_start_frames:
+                    speech_started = True
+                    heard_frames.extend(pre_roll)
+                    pre_roll.clear()
+                    print("检测到语音，录音中...")
+                continue
+
+            heard_frames.append(chunk)
+            if is_loud:
+                silence_frames = 0
+            else:
+                silence_frames += 1
+
+            if silence_frames >= silence_frames_needed:
+                break
+            if len(heard_frames) >= max_frames:
+                break
+
+        if not heard_frames:
+            path.unlink(missing_ok=True)
+            return None
+
+        with wave.open(str(path), "wb") as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(sample_width)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(b"".join(heard_frames))
+
+        print(f"录音完成：{path}")
+        return path
+    finally:
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
 
 
 def record_wav(seconds: int | None = None, config: ASRConfig | None = None) -> Path:
