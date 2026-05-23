@@ -22,6 +22,7 @@ setup(
         "console_scripts": [
             "rosa_cli = rosa_agent.cli:main",
             "rosa_voice_cli = rosa_agent.voice_cli:main",
+            "rosa_always_listen = rosa_agent.always_listen_voice_cli:main",
             "rosa_test_asr = rosa_agent.asr_test:main",
             "tts_node = rosa_agent.tts_node:main",
         ],

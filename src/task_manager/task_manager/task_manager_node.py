@@ -16,6 +16,7 @@ from rclpy.node import Node
 from rclpy.task import Future
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from task_manager_interfaces.srv import QueryRobotState, StartTask
 
 
 class RobotMode(Enum):
@@ -39,6 +40,7 @@ class NamedLocation:
 @dataclass(frozen=True)
 class RobotTask:
     task_id: str
+    task_type: str
     location_name: str
     speech_text: str
 
@@ -67,6 +69,7 @@ class TaskManagerNode(Node):
         self._navigation_retry_count = 0
         self._conversation_timer = None
         self._cancel_requested = False
+        self._last_error = ""
 
         self._locations = self._load_locations()
         self._nav_timeout = Duration(
@@ -92,6 +95,10 @@ class TaskManagerNode(Node):
         self.create_service(Trigger, "trigger_wakeup_task", self._on_trigger_wakeup)
         self.create_service(Trigger, "cancel_task", self._on_cancel_task)
         self.create_service(Trigger, "clear_fault", self._on_clear_fault)
+        self.create_service(StartTask, "/robot_server/start_task", self._on_start_task)
+        self.create_service(Trigger, "/robot_server/start_wakeup_task", self._on_robot_start_wakeup)
+        self.create_service(Trigger, "/robot_server/cancel_current_task", self._on_cancel_task)
+        self.create_service(QueryRobotState, "/robot_server/query_robot_state", self._on_query_robot_state)
 
         self._watchdog_timer = self.create_timer(1.0, self._watchdog)
         self._publish_mode()
@@ -103,9 +110,11 @@ class TaskManagerNode(Node):
             self._demo_timer = None
 
         self.get_logger().info(
-            "Task manager ready. mode=IDLE, locations=%s, manual trigger: "
-            "`ros2 service call /trigger_wakeup_task std_srvs/srv/Trigger {}` "
-            "or publish `wakeup_bedroom` to %s"
+            "Task manager ready. mode=IDLE, locations=%s, high-level API: "
+            "`ros2 service call /robot_server/start_task "
+            "task_manager_interfaces/srv/StartTask "
+            "\"{task_type: 'wake_up', target: 'bedroom_bedside', text: ''}\"`. "
+            "Legacy command topic still subscribed at %s."
             % (sorted(self._locations.keys()), command_topic)
         )
 
@@ -171,9 +180,34 @@ class TaskManagerNode(Node):
         self._start_wakeup_task(source="demo_timer")
 
     def _on_trigger_wakeup(self, _request, response):
-        accepted, message = self._start_wakeup_task(source="service")
+        accepted, message = self._start_wakeup_task(source="legacy_service")
         response.success = accepted
         response.message = message
+        return response
+
+    def _on_robot_start_wakeup(self, _request, response):
+        accepted, message = self._start_wakeup_task(source="service:/robot_server/start_wakeup_task")
+        response.success = accepted
+        response.message = message
+        return response
+
+    def _on_start_task(self, request, response):
+        accepted, message = self._start_task(
+            task_type=request.task_type,
+            target=request.target,
+            text=request.text,
+            source="service:/robot_server/start_task",
+        )
+        response.success = accepted
+        response.message = message
+        return response
+
+    def _on_query_robot_state(self, _request, response):
+        response.mode = self._mode.value
+        response.current_task = self._active_task.task_id if self._active_task else ""
+        response.target = self._active_task.location_name if self._active_task else ""
+        response.is_navigating = self._mode == RobotMode.NAVIGATION and self._goal_handle is not None
+        response.last_error = self._last_error
         return response
 
     def _on_cancel_task(self, _request, response):
@@ -194,33 +228,107 @@ class TaskManagerNode(Node):
         return response
 
     def _on_task_command(self, msg: String) -> None:
+        # Legacy compatibility only. New ROSA/LLM control should call
+        # /robot_server/start_task so task_type/target/text stay explicit.
         command = msg.data.strip().lower()
         if command in {"wakeup_bedroom", "wake_up_bedroom", "去卧室叫醒", "叫醒老人"}:
             self._start_wakeup_task(source=f"topic:{command}")
         elif command in {"cancel", "取消任务"}:
             self._cancel_current_task(f"topic:{command}")
         else:
-            self.get_logger().warn("Unknown task command ignored: %s" % msg.data)
+            self.get_logger().warn(
+                "Unknown legacy task command ignored: %s. Use /robot_server/start_task "
+                "for wake_up, navigate, and speak tasks." % msg.data
+            )
 
     def _start_wakeup_task(self, source: str) -> tuple[bool, str]:
+        return self._start_task(
+            task_type="wake_up",
+            target="bedroom_bedside",
+            text="",
+            source=source,
+        )
+
+    def _start_task(
+        self, task_type: str, target: str = "", text: str = "", source: str = "unknown"
+    ) -> tuple[bool, str]:
         if self._mode != RobotMode.IDLE:
-            message = "Reject wakeup task from %s: robot is %s" % (source, self._mode.value)
+            message = "Reject %s task from %s: robot is busy, mode=%s, current_task=%s" % (
+                task_type,
+                source,
+                self._mode.value,
+                self._active_task.task_id if self._active_task else "",
+            )
             self.get_logger().warn(message)
             return False, message
 
+        task_type = task_type.strip().lower()
+        target = target.strip()
+        text = text.strip()
+
+        if task_type in {"wake_up", "wakeup"}:
+            target = target or "bedroom_bedside"
+            if target not in self._locations:
+                return self._reject_invalid_task("Unknown named location: %s" % target)
+            task = RobotTask(
+                task_id="wake_up",
+                task_type="wake_up",
+                location_name=target,
+                speech_text=text or "早上好，该起床了。",
+            )
+            self._accept_task(task, RobotMode.SCHEDULED_TASK, source)
+            self._dispatch_navigation_task()
+            return True, "Wakeup task accepted."
+
+        if task_type == "navigate":
+            if not target:
+                return self._reject_invalid_task("Navigate task requires target.")
+            if target not in self._locations:
+                return self._reject_invalid_task("Unknown named location: %s" % target)
+            task = RobotTask(
+                task_id="navigate:%s" % target,
+                task_type="navigate",
+                location_name=target,
+                speech_text="",
+            )
+            self._accept_task(task, RobotMode.NAVIGATION, source)
+            self._dispatch_navigation_task()
+            return True, "Navigate task accepted: %s" % target
+
+        if task_type == "speak":
+            if not text:
+                return self._reject_invalid_task("Speak task requires text.")
+            task = RobotTask(
+                task_id="speak",
+                task_type="speak",
+                location_name="",
+                speech_text=text,
+            )
+            self._accept_task(task, RobotMode.CONVERSATION, source)
+            self._start_conversation()
+            return True, "Speak task accepted."
+
+        return self._reject_invalid_task("Unknown task_type: %s" % task_type)
+
+    def _accept_task(self, task: RobotTask, initial_mode: RobotMode, source: str) -> None:
         task = RobotTask(
-            task_id="wakeup_bedroom",
-            location_name="bedroom_bedside",
-            speech_text="早上好，该起床了。",
+            task_id=task.task_id,
+            task_type=task.task_type,
+            location_name=task.location_name,
+            speech_text=task.speech_text,
         )
         self._active_task = task
         self._navigation_retry_count = 0
         self._cancel_requested = False
-        self._set_mode(RobotMode.SCHEDULED_TASK, "accepted task %s from %s" % (task.task_id, source))
-        self._dispatch_task()
-        return True, "Wakeup task accepted."
+        self._last_error = ""
+        self._set_mode(initial_mode, "accepted task %s from %s" % (task.task_id, source))
 
-    def _dispatch_task(self) -> None:
+    def _reject_invalid_task(self, message: str) -> tuple[bool, str]:
+        self._last_error = message
+        self.get_logger().warn(message)
+        return False, message
+
+    def _dispatch_navigation_task(self) -> None:
         if self._active_task is None:
             self._fail_task("No active task to dispatch.")
             return
@@ -286,7 +394,12 @@ class TaskManagerNode(Node):
         self._goal_handle = None
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info("Navigation succeeded.")
-            self._start_conversation()
+            if self._active_task and self._active_task.task_type == "navigate":
+                task_id = self._active_task.task_id
+                self._reset_task()
+                self._set_mode(RobotMode.IDLE, "navigation task %s completed" % task_id)
+            else:
+                self._start_conversation()
             return
 
         status_name = self._goal_status_name(result.status)
@@ -324,10 +437,10 @@ class TaskManagerNode(Node):
 
     def _start_conversation(self) -> None:
         if self._active_task is None:
-            self._fail_task("Navigation succeeded but no active task exists.")
+            self._fail_task("Conversation requested but no active task exists.")
             return
 
-        self._set_mode(RobotMode.CONVERSATION, "arrived, publishing TTS text")
+        self._set_mode(RobotMode.CONVERSATION, "publishing TTS text")
         self._tts_pub.publish(String(data=self._active_task.speech_text))
         self.get_logger().info("Published TTS text: %s" % self._active_task.speech_text)
 
@@ -361,11 +474,13 @@ class TaskManagerNode(Node):
             self._conversation_timer = None
 
         self._reset_task()
+        self._last_error = ""
         self._set_mode(RobotMode.IDLE, "task cancelled by %s" % source)
         return True, "Task cancelled."
 
     def _fail_task(self, reason: str) -> None:
         self.get_logger().error("Task failed: %s" % reason)
+        self._last_error = reason
         self._reset_task()
         self._set_mode(RobotMode.FAULT, reason)
 

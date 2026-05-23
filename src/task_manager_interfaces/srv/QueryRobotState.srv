@@ -1,0 +1,6 @@
+---
+string mode
+string current_task
+string target
+bool is_navigating
+string last_error

@@ -4,7 +4,8 @@
 
 - text CLI: `ros2 run rosa_agent rosa_cli`
 - voice CLI with ASR and TTS: `ros2 run rosa_agent rosa_voice_cli`
-- safe ROS2 action tools for short commands, background launch/node management, and workspace file access
+- always-on wake-word voice agent: `ros2 run rosa_agent rosa_always_listen`
+- high-level robot action tools for task_manager robot server services
 
 ## Layout
 
@@ -14,6 +15,7 @@
 - `rosa_agent/voice.py`: microphone recording, ASR, and TTS playback
 - `rosa_agent/cli.py`: text interface
 - `rosa_agent/voice_cli.py`: voice interface
+- `rosa_agent/always_listen_voice_cli.py`: always-on wake-word voice interface
 - `launch/`: launch files the agent can run or inspect
 
 Runtime logs and pid files are written under:
@@ -73,4 +75,5 @@ Run:
 ```bash
 ros2 run rosa_agent rosa_cli
 ros2 run rosa_agent rosa_voice_cli
+ros2 run rosa_agent rosa_always_listen
 ```

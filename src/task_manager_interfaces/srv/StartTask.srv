@@ -1,0 +1,6 @@
+string task_type
+string target
+string text
+---
+bool success
+string message
