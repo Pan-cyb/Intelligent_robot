@@ -82,7 +82,7 @@ def generate_launch_description():
         # Static TF: base_link → camera_link
         # args: x y z roll pitch yaw parent child
         # Camera pitch calibration: place robot facing a wall at known distance,
-        # compare /person_position.z with actual distance, adjust pitch until error < 5%.
+        # compare /person_distance with actual distance, adjust pitch until error < 5%.
         # Current -0.35 rad ≈ -20° (camera tilted up). Positive pitch = tilted down.
         Node(
             package='tf2_ros',

@@ -58,6 +58,34 @@ Nav2:
   负责路径规划、控制和 NavigateToPose action。
 ```
 
+## 坐标系规则
+
+ROS 车体/相机坐标约定应统一为：
+
+```text
+x 前
+y 左
+z 上
+```
+
+深度相机或视觉算法常见 optical frame 为：
+
+```text
+x 右
+y 下
+z 前
+```
+
+如果视觉算法直接用像素和深度反投影，发布到 `camera_link` 前必须转换为 ROS body frame：
+
+```text
+camera_link.x = optical_z
+camera_link.y = -optical_x
+camera_link.z = -optical_y
+```
+
+不要把 optical frame 的 `z 前方距离` 直接作为 `camera_link.z` 发布，否则 TF 转到 `map` 后会导致目标方向约 90 度偏转。
+
 ## 命名点规则
 
 导航目标点应表示机器人真正能停靠的位置，不要使用房间语义中心。

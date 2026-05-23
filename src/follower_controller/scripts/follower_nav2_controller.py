@@ -78,9 +78,9 @@ class FollowerNav2Controller(Node):
         self.person_visible = True
         self.person_position_msg = msg
         self.last_person_time = time.time()
-        d = math.sqrt(msg.point.x**2 + msg.point.z**2)
+        d = math.sqrt(msg.point.x**2 + msg.point.y**2)
         if d > 0.01:
-            self.person_angle = math.atan2(msg.point.x, msg.point.z)
+            self.person_angle = math.atan2(msg.point.y, msg.point.x)
 
     def distance_callback(self, msg: Float32):
         self.person_distance = msg.data
@@ -94,10 +94,10 @@ class FollowerNav2Controller(Node):
     def hand_callback(self, msg: PointStamped):
         self.hand_visible = True
         self.hand_position_msg = msg
-        d = math.sqrt(msg.point.x**2 + msg.point.z**2)
+        d = math.sqrt(msg.point.x**2 + msg.point.y**2)
         if d > 0.01:
             self.hand_distance = d
-            self.hand_angle = math.atan2(msg.point.x, msg.point.z)
+            self.hand_angle = math.atan2(msg.point.y, msg.point.x)
 
     def robot_mode_callback(self, msg: String):
         self.task_manager_active = msg.data != 'IDLE'
@@ -109,18 +109,60 @@ class FollowerNav2Controller(Node):
             self.get_logger().info(f'State: {self.STATE_NAMES[self.state]} → {self.STATE_NAMES[new_state]}')
             self.state = new_state
 
+    def yaw_to_quaternion(self, yaw: float):
+        qz = math.sin(yaw / 2.0)
+        qw = math.cos(yaw / 2.0)
+        return qz, qw
+
     def transform_to_map(self, point_stamped: PointStamped):
-        """Transform a PointStamped from camera_link to map frame. Returns PoseStamped or None."""
+        """Transform a PointStamped to map frame. Returns PointStamped or None."""
         try:
-            transformed = self.tf_buffer.transform(point_stamped, 'map', timeout=rclpy.duration.Duration(seconds=0.5))
-            pose = PoseStamped()
-            pose.header = transformed.header
-            pose.pose.position = transformed.point
-            pose.pose.orientation.w = 1.0
-            return pose
+            return self.tf_buffer.transform(
+                point_stamped,
+                'map',
+                timeout=rclpy.duration.Duration(seconds=0.5),
+            )
         except Exception as e:
             self.get_logger().warn(f'TF transform failed: {e}')
             return None
+
+    def make_follow_goal(self, target_map: PointStamped):
+        """Build a Nav2 goal that stops follow_distance short of the target."""
+        try:
+            robot_pose = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.5),
+            )
+        except Exception as e:
+            self.get_logger().warn(f'Robot pose lookup failed: {e}')
+            return None
+
+        robot_x = robot_pose.transform.translation.x
+        robot_y = robot_pose.transform.translation.y
+        target_x = target_map.point.x
+        target_y = target_map.point.y
+        dx = target_x - robot_x
+        dy = target_y - robot_y
+        dist = math.hypot(dx, dy)
+        if dist < 0.01:
+            return None
+
+        stop_distance = min(self.follow_dist, max(0.0, dist - 0.05))
+        goal_x = target_x - dx / dist * stop_distance
+        goal_y = target_y - dy / dist * stop_distance
+        yaw = math.atan2(target_y - goal_y, target_x - goal_x)
+        qz, qw = self.yaw_to_quaternion(yaw)
+
+        pose = PoseStamped()
+        pose.header = target_map.header
+        pose.pose.position.x = goal_x
+        pose.pose.position.y = goal_y
+        pose.pose.position.z = 0.0
+        pose.pose.orientation.z = qz
+        pose.pose.orientation.w = qw
+        return pose
 
     def send_nav_goal(self, pose_stamped: PoseStamped):
         """Send a NavigateToPose goal to Nav2."""
@@ -181,14 +223,21 @@ class FollowerNav2Controller(Node):
 
             person_map = self.transform_to_map(self.person_position_msg)
             if person_map is not None:
-                self.send_nav_goal(person_map)
-                self.get_logger().info(f'Nav goal to person at distance {self.person_distance:.2f}m')
+                follow_goal = self.make_follow_goal(person_map)
+                if follow_goal is not None:
+                    self.send_nav_goal(follow_goal)
+                    self.get_logger().info(
+                        f'Nav goal toward person, keeping {self.follow_dist:.2f}m; '
+                        f'person distance {self.person_distance:.2f}m'
+                    )
 
         elif self.state == self.APPROACH_HAND:
             if self.hand_visible and self.hand_position_msg is not None:
                 hand_map = self.transform_to_map(self.hand_position_msg)
                 if hand_map is not None:
-                    self.send_nav_goal(hand_map)
+                    hand_goal = self.make_follow_goal(hand_map)
+                    if hand_goal is not None:
+                        self.send_nav_goal(hand_goal)
                     self.get_logger().info(f'Nav goal to hand at distance {self.hand_distance:.2f}m')
 
                 if self.hand_distance <= self.approach_dist * 1.5:
@@ -197,7 +246,9 @@ class FollowerNav2Controller(Node):
                 # Fallback: approach body
                 person_map = self.transform_to_map(self.person_position_msg)
                 if person_map is not None:
-                    self.send_nav_goal(person_map)
+                    follow_goal = self.make_follow_goal(person_map)
+                    if follow_goal is not None:
+                        self.send_nav_goal(follow_goal)
 
         elif self.state == self.MEDICINE_READY:
             self.cancel_nav_goal()

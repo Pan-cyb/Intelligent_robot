@@ -64,6 +64,7 @@ class PersonTrackerNode(Node):
         self.person_distance = 0.0
         self.person_x = 0.0  # EMA smoothed
         self.person_y = 0.0
+        self.person_z = 0.0
         self.hand_x = 0.0
         self.hand_y = 0.0
         self.hand_z = 0.0
@@ -109,14 +110,20 @@ class PersonTrackerNode(Node):
         return float(np.median(valid)) if len(valid) > 0 else 0.0
 
     def pixel_to_3d(self, u, v, depth):
-        """Convert pixel (u,v) + depth (m) to 3D point in camera frame."""
+        """Convert pixel (u,v) + depth (m) to ROS camera_link coordinates.
+
+        The depth camera math first produces optical-frame coordinates:
+        x right, y down, z forward. The rest of this workspace treats
+        camera_link as a ROS body frame: x forward, y left, z up.
+        """
         cx = self.img_w / 2.0
         cy = self.img_h / 2.0
         fx = self.img_w / (2.0 * np.tan(np.radians(self.hfov) / 2.0))
         fy = self.img_h / (2.0 * np.tan(np.radians(self.vfov) / 2.0))
-        x = (u - cx) * depth / fx
-        y = (v - cy) * depth / fy
-        return x, y, depth  # z = forward
+        optical_x = (u - cx) * depth / fx
+        optical_y = (v - cy) * depth / fy
+        optical_z = depth
+        return optical_z, -optical_x, -optical_y
 
     def make_pointstamped(self, x, y, z, frame_id='camera_link'):
         p = PointStamped()
@@ -200,17 +207,19 @@ class PersonTrackerNode(Node):
                     self.person_distance = dist
                     self.person_x = bx
                     self.person_y = by
+                    self.person_z = bz
                     self.ema_initialized = True
                 else:
                     a = self.ema_alpha
                     self.person_distance = a * dist + (1 - a) * self.person_distance
                     self.person_x = a * bx + (1 - a) * self.person_x
                     self.person_y = a * by + (1 - a) * self.person_y
+                    self.person_z = a * bz + (1 - a) * self.person_z
 
                 self.person_detected = True
 
                 # Publish smoothed body position
-                self.pos_pub.publish(self.make_pointstamped(self.person_x, self.person_y, self.person_distance))
+                self.pos_pub.publish(self.make_pointstamped(self.person_x, self.person_y, self.person_z))
 
                 # Publish distance
                 d = Float32()
