@@ -38,7 +38,7 @@ def generate_launch_description():
                 'fall_tilt_threshold': 50.0,
                 'detection_confidence': 0.6,
                 'tracking_confidence': 0.5,
-                'debug_window': True,
+                'debug_window': False,
             }],
         ),
 

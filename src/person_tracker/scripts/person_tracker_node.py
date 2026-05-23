@@ -27,7 +27,7 @@ class PersonTrackerNode(Node):
         self.declare_parameter('fall_tilt_threshold', 50.0)
         self.declare_parameter('detection_confidence', 0.6)
         self.declare_parameter('tracking_confidence', 0.5)
-        self.declare_parameter('debug_window', True)
+        self.declare_parameter('debug_window', False)
 
         self.depth_scale = self.get_parameter('depth_scale').value
         self.fall_tilt_threshold = self.get_parameter('fall_tilt_threshold').value

@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import PointStamped, PoseStamped
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, String
 from sensor_msgs.msg import LaserScan
 from nav2_msgs.action import NavigateToPose
 from tf2_ros import Buffer, TransformListener
@@ -45,8 +45,11 @@ class FollowerNav2Controller(Node):
         self.is_fallen = False
         self.person_visible = False
         self.hand_visible = False
+        self.person_position_msg = None   # full PointStamped from person_tracker
+        self.hand_position_msg = None     # full PointStamped from person_tracker
         self.last_person_time = 0.0
         self.last_goal_time = 0.0
+        self.task_manager_active = False  # True when task_manager is not IDLE
 
         # ========== TF ==========
         self.tf_buffer = Buffer()
@@ -61,6 +64,7 @@ class FollowerNav2Controller(Node):
         self.create_subscription(Float32, '/person_distance', self.distance_callback, 10)
         self.create_subscription(Bool, '/fall_detected', self.fall_callback, 10)
         self.create_subscription(PointStamped, '/person_hand_position', self.hand_callback, 10)
+        self.create_subscription(String, '/robot_mode', self.robot_mode_callback, 10)
 
         # ========== Control Timer ==========
         self.create_timer(0.5, self.control_loop)  # 2 Hz
@@ -71,6 +75,7 @@ class FollowerNav2Controller(Node):
 
     def person_callback(self, msg: PointStamped):
         self.person_visible = True
+        self.person_position_msg = msg
         self.last_person_time = time.time()
         d = math.sqrt(msg.point.x**2 + msg.point.z**2)
         if d > 0.01:
@@ -87,10 +92,14 @@ class FollowerNav2Controller(Node):
 
     def hand_callback(self, msg: PointStamped):
         self.hand_visible = True
+        self.hand_position_msg = msg
         d = math.sqrt(msg.point.x**2 + msg.point.z**2)
         if d > 0.01:
             self.hand_distance = d
             self.hand_angle = math.atan2(msg.point.x, msg.point.z)
+
+    def robot_mode_callback(self, msg: String):
+        self.task_manager_active = msg.data != 'IDLE'
 
     # ---- State Machine ----
 
@@ -146,6 +155,13 @@ class FollowerNav2Controller(Node):
             self.current_goal_handle = None
 
     def control_loop(self):
+        # Yield to task_manager when it's active
+        if self.task_manager_active:
+            if self.state != self.IDLE:
+                self.cancel_nav_goal()
+                self.set_state(self.IDLE)
+            return
+
         # Check if person is lost
         if self.state != self.IDLE and not self.person_visible:
             if time.time() - self.last_person_time > self.lost_timeout:
@@ -159,46 +175,26 @@ class FollowerNav2Controller(Node):
                 self.set_state(self.FOLLOWING)
 
         elif self.state == self.FOLLOWING:
-            if not self.person_visible:
+            if not self.person_visible or self.person_position_msg is None:
                 return
 
-            # Transform person position to map frame
-            person_point = PointStamped()
-            person_point.header.frame_id = 'camera_link'
-            person_point.header.stamp = self.get_clock().now().to_msg()
-            person_point.point.x = 0.0  # lateral
-            person_point.point.y = 0.0  # vertical
-            person_point.point.z = self.person_distance  # forward
-
-            person_map = self.transform_to_map(person_point)
+            person_map = self.transform_to_map(self.person_position_msg)
             if person_map is not None:
                 self.send_nav_goal(person_map)
                 self.get_logger().info(f'Nav goal to person at distance {self.person_distance:.2f}m')
 
         elif self.state == self.APPROACH_HAND:
-            if self.hand_visible:
-                hand_point = PointStamped()
-                hand_point.header.frame_id = 'camera_link'
-                hand_point.header.stamp = self.get_clock().now().to_msg()
-                hand_point.point.x = 0.0
-                hand_point.point.y = 0.0
-                hand_point.point.z = self.hand_distance
-
-                hand_map = self.transform_to_map(hand_point)
+            if self.hand_visible and self.hand_position_msg is not None:
+                hand_map = self.transform_to_map(self.hand_position_msg)
                 if hand_map is not None:
                     self.send_nav_goal(hand_map)
                     self.get_logger().info(f'Nav goal to hand at distance {self.hand_distance:.2f}m')
 
                 if self.hand_distance <= self.approach_dist * 1.5:
                     self.set_state(self.MEDICINE_READY)
-            elif self.person_visible:
+            elif self.person_visible and self.person_position_msg is not None:
                 # Fallback: approach body
-                person_point = PointStamped()
-                person_point.header.frame_id = 'camera_link'
-                person_point.header.stamp = self.get_clock().now().to_msg()
-                person_point.point.z = self.person_distance
-
-                person_map = self.transform_to_map(person_point)
+                person_map = self.transform_to_map(self.person_position_msg)
                 if person_map is not None:
                     self.send_nav_goal(person_map)
 
