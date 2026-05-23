@@ -1,5 +1,10 @@
 """Unified launch file for the full caregiving robot stack.
 
+This file is kept for follower_controller integration/debug sessions.
+The main robot server entrypoint is:
+  ros2 launch task_manager robot_server.launch.py enable_person_tracker:=true enable_follower_controller:=true
+Runtime robot mode is owned by task_manager.
+
 Launches everything in one command:
   camera + lidar + base_controller + Nav2 + person_tracker + follower + task_manager + TTS
 

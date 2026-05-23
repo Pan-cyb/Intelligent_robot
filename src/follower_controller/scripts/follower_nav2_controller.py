@@ -3,8 +3,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import PointStamped, PoseStamped
-from std_msgs.msg import Bool, Float32, String
-from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Float32, String
 from nav2_msgs.action import NavigateToPose
 from tf2_ros import Buffer, TransformListener
 import tf2_geometry_msgs  # registers PointStamped with TF2
@@ -13,13 +12,7 @@ import time
 
 
 class FollowerNav2Controller(Node):
-    """Nav2-based person follower: transform person position to map, send NavigateToPose goals."""
-
-    IDLE = 0
-    FOLLOWING = 1
-    APPROACH_HAND = 2
-    MEDICINE_READY = 3
-    STATE_NAMES = ['IDLE', 'FOLLOWING', 'APPROACH_HAND', 'MEDICINE_READY']
+    """Nav2-based follow executor enabled only by robot_mode=FOLLOWING."""
 
     def __init__(self):
         super().__init__('follower_nav2_controller')
@@ -38,19 +31,13 @@ class FollowerNav2Controller(Node):
         self.camera_pitch = self.get_parameter('camera_pitch').value
 
         # ========== State ==========
-        self.state = self.IDLE
+        self.enabled = False
         self.person_distance = 0.0
         self.person_angle = 0.0
-        self.hand_distance = 0.0
-        self.hand_angle = 0.0
-        self.is_fallen = False
         self.person_visible = False
-        self.hand_visible = False
         self.person_position_msg = None   # full PointStamped from person_tracker
-        self.hand_position_msg = None     # full PointStamped from person_tracker
         self.last_person_time = 0.0
         self.last_goal_time = 0.0
-        self.task_manager_active = False  # True when task_manager is not IDLE
 
         # ========== TF ==========
         self.tf_buffer = Buffer()
@@ -63,8 +50,6 @@ class FollowerNav2Controller(Node):
         # ========== Subscribers ==========
         self.create_subscription(PointStamped, '/person_position', self.person_callback, 10)
         self.create_subscription(Float32, '/person_distance', self.distance_callback, 10)
-        self.create_subscription(Bool, '/fall_detected', self.fall_callback, 10)
-        self.create_subscription(PointStamped, '/person_hand_position', self.hand_callback, 10)
         self.create_subscription(String, '/robot_mode', self.robot_mode_callback, 10)
 
         # ========== Control Timer ==========
@@ -85,29 +70,22 @@ class FollowerNav2Controller(Node):
     def distance_callback(self, msg: Float32):
         self.person_distance = msg.data
 
-    def fall_callback(self, msg: Bool):
-        self.is_fallen = msg.data
-        if self.is_fallen and self.state == self.FOLLOWING:
-            self.set_state(self.APPROACH_HAND)
-            self.get_logger().info('Fall detected! Approaching hand...')
-
-    def hand_callback(self, msg: PointStamped):
-        self.hand_visible = True
-        self.hand_position_msg = msg
-        d = math.sqrt(msg.point.x**2 + msg.point.y**2)
-        if d > 0.01:
-            self.hand_distance = d
-            self.hand_angle = math.atan2(msg.point.y, msg.point.x)
-
     def robot_mode_callback(self, msg: String):
-        self.task_manager_active = msg.data != 'IDLE'
+        should_enable = msg.data == 'FOLLOWING'
+        if should_enable == self.enabled:
+            return
 
-    # ---- State Machine ----
-
-    def set_state(self, new_state):
-        if new_state != self.state:
-            self.get_logger().info(f'State: {self.STATE_NAMES[self.state]} → {self.STATE_NAMES[new_state]}')
-            self.state = new_state
+        self.enabled = should_enable
+        if self.enabled:
+            self.person_visible = False
+            self.person_position_msg = None
+            self.last_goal_time = 0.0
+            self.get_logger().info('Follower enabled by robot_mode=FOLLOWING')
+        else:
+            self.cancel_nav_goal()
+            self.person_visible = False
+            self.person_position_msg = None
+            self.get_logger().info(f'Follower disabled by robot_mode={msg.data}')
 
     def yaw_to_quaternion(self, yaw: float):
         qz = math.sin(yaw / 2.0)
@@ -198,62 +176,34 @@ class FollowerNav2Controller(Node):
             self.current_goal_handle = None
 
     def control_loop(self):
-        # Yield to task_manager when it's active
-        if self.task_manager_active:
-            if self.state != self.IDLE:
-                self.cancel_nav_goal()
-                self.set_state(self.IDLE)
+        if not self.enabled:
             return
 
         # Check if person is lost
-        if self.state != self.IDLE and not self.person_visible:
-            if time.time() - self.last_person_time > self.lost_timeout:
-                self.set_state(self.IDLE)
+        if not self.person_visible or self.person_position_msg is None:
+            if self.last_person_time > 0.0 and time.time() - self.last_person_time > self.lost_timeout:
+                self.person_visible = False
+                self.person_position_msg = None
                 self.cancel_nav_goal()
-                self.get_logger().info('Person lost, going IDLE')
+                self.get_logger().warn('Person lost while following')
             return
 
-        if self.state == self.IDLE:
-            if self.person_visible:
-                self.set_state(self.FOLLOWING)
-
-        elif self.state == self.FOLLOWING:
-            if not self.person_visible or self.person_position_msg is None:
-                return
-
-            person_map = self.transform_to_map(self.person_position_msg)
-            if person_map is not None:
-                follow_goal = self.make_follow_goal(person_map)
-                if follow_goal is not None:
-                    self.send_nav_goal(follow_goal)
-                    self.get_logger().info(
-                        f'Nav goal toward person, keeping {self.follow_dist:.2f}m; '
-                        f'person distance {self.person_distance:.2f}m'
-                    )
-
-        elif self.state == self.APPROACH_HAND:
-            if self.hand_visible and self.hand_position_msg is not None:
-                hand_map = self.transform_to_map(self.hand_position_msg)
-                if hand_map is not None:
-                    hand_goal = self.make_follow_goal(hand_map)
-                    if hand_goal is not None:
-                        self.send_nav_goal(hand_goal)
-                    self.get_logger().info(f'Nav goal to hand at distance {self.hand_distance:.2f}m')
-
-                if self.hand_distance <= self.approach_dist * 1.5:
-                    self.set_state(self.MEDICINE_READY)
-            elif self.person_visible and self.person_position_msg is not None:
-                # Fallback: approach body
-                person_map = self.transform_to_map(self.person_position_msg)
-                if person_map is not None:
-                    follow_goal = self.make_follow_goal(person_map)
-                    if follow_goal is not None:
-                        self.send_nav_goal(follow_goal)
-
-        elif self.state == self.MEDICINE_READY:
+        if time.time() - self.last_person_time > self.lost_timeout:
+            self.person_visible = False
+            self.person_position_msg = None
             self.cancel_nav_goal()
-            if self.person_visible and not self.is_fallen:
-                self.set_state(self.IDLE)
+            self.get_logger().warn('Person lost while following')
+            return
+
+        person_map = self.transform_to_map(self.person_position_msg)
+        if person_map is not None:
+            follow_goal = self.make_follow_goal(person_map)
+            if follow_goal is not None:
+                self.send_nav_goal(follow_goal)
+                self.get_logger().info(
+                    f'Nav goal toward person, keeping {self.follow_dist:.2f}m; '
+                    f'person distance {self.person_distance:.2f}m'
+                )
 
     def cancel_nav_goal(self):
         if self.current_goal_handle is not None:

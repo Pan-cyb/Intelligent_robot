@@ -39,6 +39,9 @@ IDLE
 SCHEDULED_TASK
 NAVIGATION
 CONVERSATION
+FOLLOWING
+INSPECTION
+EMERGENCY
 MANUAL
 FAULT
 ```
@@ -143,6 +146,8 @@ string text
 task_type="wake_up"   叫醒任务，默认目标 bedroom_bedside，到达后播报“早上好，该起床了。”
 task_type="navigate"  导航到 target 指定的命名点
 task_type="speak"     播放 text 指定文本
+task_type="follow"    进入 FOLLOWING，由 follower_controller 根据 /robot_mode 执行跟随
+task_type="inspection" 主动巡检配置点，观察是否看到老人
 ```
 
 取消任务：
@@ -196,7 +201,25 @@ task_manager_node
 tts_node
 ```
 
-默认不会自动执行任务。
+默认不会自动执行任务，但会启动视觉感知、跟随执行器和 debug window：
+
+```bash
+ros2 launch task_manager robot_server.launch.py
+```
+
+如需关闭视觉跟随和调试窗口：
+
+```bash
+ros2 launch task_manager robot_server.launch.py enable_person_tracker:=false enable_follower_controller:=false debug_window:=false
+```
+
+职责边界：
+
+```text
+person_tracker 只发布 /person_position /person_distance /person_hand_position /fall_detected
+follower_controller 只在 /robot_mode == FOLLOWING 时发送 Nav2 跟随 goal
+task_manager 是唯一整机状态机，负责 FOLLOWING / INSPECTION / EMERGENCY 等模式切换
+```
 
 ## 命令端发布任务
 
@@ -223,6 +246,18 @@ ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask
 
 ```bash
 ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'speak', target: '', text: '您好，我在这里。'}"
+```
+
+开始跟随：
+
+```bash
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'follow', target: '', text: ''}"
+```
+
+主动巡检：
+
+```bash
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'inspection', target: '', text: ''}"
 ```
 
 旧入口仍保留用于兼容历史 wakeup/cancel 测试，不作为新任务扩展入口：
@@ -278,6 +313,12 @@ ros2 service call /cancel_task std_srvs/srv/Trigger {}
 ros2 service call /clear_fault std_srvs/srv/Trigger {}
 ```
 
+如果摔倒确认后进入 `EMERGENCY`：
+
+```bash
+ros2 service call /robot_server/clear_emergency std_srvs/srv/Trigger {}
+```
+
 ## 常用启动参数
 
 指定地点文件：
@@ -305,6 +346,18 @@ ros2 launch task_manager robot_server.launch.py navigation_timeout_sec:=120.0
 ros2 launch task_manager robot_server.launch.py task_command_topic:=/task_command
 ```
 
+视觉跟随参数：
+
+```bash
+ros2 launch task_manager robot_server.launch.py \
+  enable_person_tracker:=false \
+  enable_follower_controller:=false \
+  debug_window:=false \
+  fall_confirm_frames:=5 \
+  observe_duration_sec:=5.0 \
+  person_seen_timeout_sec:=1.0
+```
+
 ## 最小闭环验收
 
 1. 服务端启动成功。
@@ -325,6 +378,8 @@ ROSA action tools 只暴露高层工具：
 start_wakeup_task()
 navigate_to_named_place(place_name)
 speak_text(text)
+start_following_task()
+start_inspection_task()
 cancel_current_task()
 query_robot_state()
 ```

@@ -45,6 +45,12 @@ Nav2 / TTS / 其他功能模块
 rosa_agent:
   负责 ASR、LLM、TTS、语音/文字交互。
 
+person_tracker:
+  只负责视觉感知和检测结果发布，不控制 Nav2、底盘、/cmd_vel 或 robot_mode。
+
+follower_controller:
+  只负责在 task_manager 允许 FOLLOWING 时执行跟随控制，不拥有整机状态机。
+
 task_manager:
   负责机器人任务状态机、任务准入、导航调用、超时、重试、取消、故障处理。
 
@@ -174,12 +180,28 @@ TTS_PLAYER=aplay
 ros2 launch task_manager robot_server.launch.py
 ```
 
+完整服务端默认启动视觉感知、跟随执行器和 debug window：
+
+```bash
+ros2 launch task_manager robot_server.launch.py
+```
+
+如需关闭视觉跟随：
+
+```bash
+ros2 launch task_manager robot_server.launch.py enable_person_tracker:=false enable_follower_controller:=false debug_window:=false
+```
+
+`src/follower_controller/launch/caregiving.launch.py` 仅作为 follower 联调/历史测试入口，主线整机服务端入口是 `task_manager/launch/robot_server.launch.py`。
+
 命令端发布高层任务：
 
 ```bash
 ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'wake_up', target: 'bedroom_bedside', text: ''}"
 ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'navigate', target: 'livingroom_sofa', text: ''}"
 ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'speak', target: '', text: '您好，我在这里。'}"
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'follow', target: '', text: ''}"
+ros2 service call /robot_server/start_task task_manager_interfaces/srv/StartTask "{task_type: 'inspection', target: '', text: ''}"
 ```
 
 旧兼容入口仅用于历史 wakeup/cancel 测试，不作为新功能扩展入口：

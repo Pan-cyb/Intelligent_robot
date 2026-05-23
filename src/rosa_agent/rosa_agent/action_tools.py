@@ -194,6 +194,24 @@ def speak_text(text: str) -> str:
 
 
 @tool
+def start_following_task(_: str = "") -> str:
+    """
+    Ask the robot server to enter FOLLOWING mode.
+
+    The follower_controller only executes following while robot_mode is FOLLOWING.
+    """
+    return _call_robot_start_task("follow", "", "")
+
+
+@tool
+def start_inspection_task(_: str = "") -> str:
+    """
+    Ask the robot server to start the active inspection task.
+    """
+    return _call_robot_start_task("inspection", "", "")
+
+
+@tool
 def cancel_current_task(_: str = "") -> str:
     """
     Cancel the robot server's current high-level task.

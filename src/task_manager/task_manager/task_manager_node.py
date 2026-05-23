@@ -7,14 +7,14 @@ from typing import Any
 import rclpy
 import yaml
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import Quaternion
+from geometry_msgs.msg import PointStamped, Quaternion
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.task import Future
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from task_manager_interfaces.srv import QueryRobotState, StartTask
 
@@ -24,6 +24,9 @@ class RobotMode(Enum):
     SCHEDULED_TASK = "SCHEDULED_TASK"
     NAVIGATION = "NAVIGATION"
     CONVERSATION = "CONVERSATION"
+    FOLLOWING = "FOLLOWING"
+    INSPECTION = "INSPECTION"
+    EMERGENCY = "EMERGENCY"
     MANUAL = "MANUAL"
     FAULT = "FAULT"
 
@@ -60,6 +63,13 @@ class TaskManagerNode(Node):
         self.declare_parameter("auto_start_demo", False)
         self.declare_parameter("demo_start_delay_sec", 10.0)
         self.declare_parameter("fault_on_navigation_failure", True)
+        self.declare_parameter("fall_confirm_frames", 5)
+        self.declare_parameter("observe_duration_sec", 5.0)
+        self.declare_parameter("person_seen_timeout_sec", 1.0)
+        self.declare_parameter(
+            "inspection_points",
+            ["livingroom_sofa", "bedroom_bedside", "kitchen"],
+        )
 
         self._mode = RobotMode.IDLE
         self._active_task: RobotTask | None = None
@@ -68,8 +78,20 @@ class TaskManagerNode(Node):
         self._navigation_started_at = None
         self._navigation_retry_count = 0
         self._conversation_timer = None
+        self._inspection_observe_timer = None
         self._cancel_requested = False
         self._last_error = ""
+        self._emergency_reason = ""
+        self._fall_true_count = 0
+        self._fall_confirm_frames = int(self.get_parameter("fall_confirm_frames").value)
+        self._observe_duration_sec = float(self.get_parameter("observe_duration_sec").value)
+        self._person_seen_timeout_sec = float(self.get_parameter("person_seen_timeout_sec").value)
+        self._last_person_seen_at = None
+        self._inspection_points = [
+            str(name)
+            for name in self.get_parameter("inspection_points").value
+        ]
+        self._inspection_index = 0
 
         self._locations = self._load_locations()
         self._nav_timeout = Duration(
@@ -91,13 +113,17 @@ class TaskManagerNode(Node):
 
         command_topic = str(self.get_parameter("task_command_topic").value)
         self.create_subscription(String, command_topic, self._on_task_command, 10)
+        self.create_subscription(Bool, "/fall_detected", self._on_fall_detected, 10)
+        self.create_subscription(PointStamped, "/person_position", self._on_person_position, 10)
 
         self.create_service(Trigger, "trigger_wakeup_task", self._on_trigger_wakeup)
         self.create_service(Trigger, "cancel_task", self._on_cancel_task)
         self.create_service(Trigger, "clear_fault", self._on_clear_fault)
+        self.create_service(Trigger, "clear_emergency", self._on_clear_emergency)
         self.create_service(StartTask, "/robot_server/start_task", self._on_start_task)
         self.create_service(Trigger, "/robot_server/start_wakeup_task", self._on_robot_start_wakeup)
         self.create_service(Trigger, "/robot_server/cancel_current_task", self._on_cancel_task)
+        self.create_service(Trigger, "/robot_server/clear_emergency", self._on_clear_emergency)
         self.create_service(QueryRobotState, "/robot_server/query_robot_state", self._on_query_robot_state)
 
         self._watchdog_timer = self.create_timer(1.0, self._watchdog)
@@ -227,6 +253,36 @@ class TaskManagerNode(Node):
         response.message = "Fault cleared."
         return response
 
+    def _on_clear_emergency(self, _request, response):
+        if self._mode not in {RobotMode.EMERGENCY, RobotMode.FAULT}:
+            response.success = False
+            response.message = f"Robot is not in EMERGENCY/FAULT, current mode={self._mode.value}"
+            return response
+        self._reset_task()
+        self._last_error = ""
+        self._emergency_reason = ""
+        self._fall_true_count = 0
+        self._set_mode(RobotMode.IDLE, "emergency cleared by service")
+        response.success = True
+        response.message = "Emergency cleared."
+        return response
+
+    def _on_person_position(self, _msg: PointStamped) -> None:
+        self._last_person_seen_at = self.get_clock().now()
+
+    def _on_fall_detected(self, msg: Bool) -> None:
+        if msg.data:
+            self._fall_true_count += 1
+        else:
+            self._fall_true_count = 0
+            return
+
+        if self._fall_true_count < self._fall_confirm_frames:
+            return
+
+        self._fall_true_count = 0
+        self._enter_emergency("fall_detected confirmed")
+
     def _on_task_command(self, msg: String) -> None:
         # Legacy compatibility only. New ROSA/LLM control should call
         # /robot_server/start_task so task_type/target/text stay explicit.
@@ -308,6 +364,31 @@ class TaskManagerNode(Node):
             self._start_conversation()
             return True, "Speak task accepted."
 
+        if task_type == "follow":
+            task = RobotTask(
+                task_id="follow",
+                task_type="follow",
+                location_name="",
+                speech_text="",
+            )
+            self._accept_task(task, RobotMode.FOLLOWING, source)
+            return True, "Follow task accepted."
+
+        if task_type == "inspection":
+            task = RobotTask(
+                task_id="inspection",
+                task_type="inspection",
+                location_name="",
+                speech_text="",
+            )
+            self._accept_task(task, RobotMode.INSPECTION, source)
+            if not self._inspection_points:
+                self._finish_inspection(False)
+                return True, "Inspection task accepted, but no inspection points configured."
+            self._inspection_index = 0
+            self._dispatch_next_inspection_point()
+            return True, "Inspection task accepted."
+
         return self._reject_invalid_task("Unknown task_type: %s" % task_type)
 
     def _accept_task(self, task: RobotTask, initial_mode: RobotMode, source: str) -> None:
@@ -365,11 +446,14 @@ class TaskManagerNode(Node):
         goal.pose.pose.orientation = self._yaw_to_quaternion(location.yaw)
 
         self._navigation_started_at = self.get_clock().now()
-        self._set_mode(
-            RobotMode.NAVIGATION,
-            "sending Nav2 goal to %s, attempt %d/%d"
-            % (location.name, self._navigation_retry_count + 1, self._retry_limit + 1),
-        )
+        if self._mode != RobotMode.INSPECTION:
+            self._set_mode(
+                RobotMode.NAVIGATION,
+                "sending Nav2 goal to %s, attempt %d/%d"
+                % (location.name, self._navigation_retry_count + 1, self._retry_limit + 1),
+            )
+        else:
+            self._publish_mode()
 
         future = self._navigate_client.send_goal_async(goal)
         future.add_done_callback(self._on_goal_response)
@@ -389,11 +473,17 @@ class TaskManagerNode(Node):
         if self._cancel_requested:
             self.get_logger().info("Navigation result received after cancellation; ignoring.")
             return
+        if self._active_task is None:
+            self.get_logger().info("Navigation result received with no active task; ignoring.")
+            return
 
         result = future.result()
         self._goal_handle = None
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info("Navigation succeeded.")
+            if self._active_task and self._active_task.task_type == "inspection":
+                self._start_inspection_observation()
+                return
             if self._active_task and self._active_task.task_type == "navigate":
                 task_id = self._active_task.task_id
                 self._reset_task()
@@ -423,6 +513,13 @@ class TaskManagerNode(Node):
 
     def _handle_navigation_failure(self, reason: str) -> None:
         self.get_logger().warn("%s retry=%d/%d" % (reason, self._navigation_retry_count, self._retry_limit))
+        if self._active_task and self._active_task.task_type == "inspection":
+            self.get_logger().warn("Inspection point failed, continuing: %s" % reason)
+            self._navigation_retry_count = 0
+            self._inspection_index += 1
+            self._dispatch_next_inspection_point()
+            return
+
         if self._active_location is not None and self._navigation_retry_count < self._retry_limit:
             self._navigation_retry_count += 1
             self._send_navigation_goal(self._active_location)
@@ -434,6 +531,64 @@ class TaskManagerNode(Node):
             self.get_logger().warn("Task failed, returning to IDLE: %s" % reason)
             self._reset_task()
             self._set_mode(RobotMode.IDLE, "navigation failed")
+
+    def _dispatch_next_inspection_point(self) -> None:
+        while self._inspection_index < len(self._inspection_points):
+            location_name = self._inspection_points[self._inspection_index]
+            if location_name not in self._locations:
+                self.get_logger().warn("Unknown inspection point skipped: %s" % location_name)
+                self._inspection_index += 1
+                continue
+
+            self._active_location = self._locations[location_name]
+            self._navigation_retry_count = 0
+            self.get_logger().info(
+                "Inspection navigating to %s (%d/%d)"
+                % (location_name, self._inspection_index + 1, len(self._inspection_points))
+            )
+            self._send_navigation_goal(self._active_location)
+            return
+
+        self._finish_inspection(False)
+
+    def _start_inspection_observation(self) -> None:
+        self._set_mode(RobotMode.INSPECTION, "observing inspection point")
+        point_name = self._inspection_points[self._inspection_index]
+        self.get_logger().info(
+            "Observing inspection point %s for %.1fs"
+            % (point_name, self._observe_duration_sec)
+        )
+        if self._inspection_observe_timer is not None:
+            self._inspection_observe_timer.cancel()
+        self._inspection_observe_timer = self.create_timer(
+            self._observe_duration_sec,
+            self._finish_inspection_observation_once,
+        )
+
+    def _finish_inspection_observation_once(self) -> None:
+        if self._inspection_observe_timer is not None:
+            self._inspection_observe_timer.cancel()
+            self._inspection_observe_timer = None
+        if self._mode != RobotMode.INSPECTION:
+            return
+        if self._person_seen_recently():
+            self._finish_inspection(True)
+            return
+        self._inspection_index += 1
+        self._dispatch_next_inspection_point()
+
+    def _person_seen_recently(self) -> bool:
+        if self._last_person_seen_at is None:
+            return False
+        elapsed = self.get_clock().now() - self._last_person_seen_at
+        return elapsed <= Duration(seconds=self._person_seen_timeout_sec)
+
+    def _finish_inspection(self, found_person: bool) -> None:
+        text = "我看到您了。" if found_person else "我没有找到您。"
+        self._tts_pub.publish(String(data=text))
+        self.get_logger().info("Inspection finished. found_person=%s" % found_person)
+        self._reset_task()
+        self._set_mode(RobotMode.IDLE, "inspection finished")
 
     def _start_conversation(self) -> None:
         if self._active_task is None:
@@ -472,11 +627,37 @@ class TaskManagerNode(Node):
         if self._conversation_timer is not None:
             self._conversation_timer.cancel()
             self._conversation_timer = None
+        if self._inspection_observe_timer is not None:
+            self._inspection_observe_timer.cancel()
+            self._inspection_observe_timer = None
 
         self._reset_task()
         self._last_error = ""
         self._set_mode(RobotMode.IDLE, "task cancelled by %s" % source)
         return True, "Task cancelled."
+
+    def _enter_emergency(self, reason: str) -> None:
+        if self._mode == RobotMode.EMERGENCY:
+            return
+
+        self.get_logger().error("Emergency confirmed: %s" % reason)
+        self._cancel_requested = True
+        if self._goal_handle is not None:
+            self._goal_handle.cancel_goal_async()
+            self._goal_handle = None
+            self.get_logger().info("Active Nav2 goal cancelled for emergency.")
+        if self._conversation_timer is not None:
+            self._conversation_timer.cancel()
+            self._conversation_timer = None
+        if self._inspection_observe_timer is not None:
+            self._inspection_observe_timer.cancel()
+            self._inspection_observe_timer = None
+
+        self._reset_task()
+        self._emergency_reason = reason
+        self._last_error = reason
+        self._set_mode(RobotMode.EMERGENCY, reason)
+        self._tts_pub.publish(String(data="检测到异常，您是否需要帮助？"))
 
     def _fail_task(self, reason: str) -> None:
         self.get_logger().error("Task failed: %s" % reason)
@@ -491,6 +672,7 @@ class TaskManagerNode(Node):
         self._navigation_started_at = None
         self._navigation_retry_count = 0
         self._cancel_requested = False
+        self._inspection_index = 0
 
     def _set_mode(self, mode: RobotMode, reason: str) -> None:
         if self._mode == mode:
