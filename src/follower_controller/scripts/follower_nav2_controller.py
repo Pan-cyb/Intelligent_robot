@@ -7,6 +7,7 @@ from std_msgs.msg import Bool, Float32, String
 from sensor_msgs.msg import LaserScan
 from nav2_msgs.action import NavigateToPose
 from tf2_ros import Buffer, TransformListener
+import tf2_geometry_msgs  # registers PointStamped with TF2
 import math
 import time
 
