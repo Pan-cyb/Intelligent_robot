@@ -32,9 +32,8 @@ def generate_launch_description():
     locations_file = os.path.join(task_manager_share, 'config', 'named_locations.yaml')
 
     # ---- Camera driver ----
-    ascamera_launch = os.path.expanduser(
-        '~/robot_ws/src/ascam_ros2_ws/src/ascamera/launch/hp60c.launch.py'
-    )
+    ascamera_share = get_package_share_directory('ascamera')
+    ascamera_launch = os.path.join(ascamera_share, 'launch', 'hp60c.launch.py')
 
     # ---- Launch arguments ----
     rviz = LaunchConfiguration('rviz')
@@ -80,6 +79,11 @@ def generate_launch_description():
 
         # ========== Static TF ==========
 
+        # Static TF: base_link → camera_link
+        # args: x y z roll pitch yaw parent child
+        # Camera pitch calibration: place robot facing a wall at known distance,
+        # compare /person_position.z with actual distance, adjust pitch until error < 5%.
+        # Current -0.35 rad ≈ -20° (camera tilted up). Positive pitch = tilted down.
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',

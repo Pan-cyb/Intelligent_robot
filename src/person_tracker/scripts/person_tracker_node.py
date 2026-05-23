@@ -28,12 +28,14 @@ class PersonTrackerNode(Node):
         self.declare_parameter('detection_confidence', 0.6)
         self.declare_parameter('tracking_confidence', 0.5)
         self.declare_parameter('debug_window', False)
+        self.declare_parameter('ema_alpha', 0.3)
 
         self.depth_scale = self.get_parameter('depth_scale').value
         self.fall_tilt_threshold = self.get_parameter('fall_tilt_threshold').value
         self.detection_conf = self.get_parameter('detection_confidence').value
         self.tracking_conf = self.get_parameter('tracking_confidence').value
         self.debug_window = self.get_parameter('debug_window').value
+        self.ema_alpha = self.get_parameter('ema_alpha').value
 
         # ========== CV Bridge ==========
         self.bridge = CvBridge()
@@ -60,6 +62,13 @@ class PersonTrackerNode(Node):
         # ========== State ==========
         self.latest_depth = None
         self.person_distance = 0.0
+        self.person_x = 0.0  # EMA smoothed
+        self.person_y = 0.0
+        self.hand_x = 0.0
+        self.hand_y = 0.0
+        self.hand_z = 0.0
+        self.ema_initialized = False
+        self.hand_ema_initialized = False
         self.person_detected = False
         self.is_fallen = False
         self.hand_position = None  # (x, y, z) in camera frame or None
@@ -183,12 +192,25 @@ class PersonTrackerNode(Node):
                 depth_raw = self.get_depth_at(self.latest_depth, ref_x, ref_y)
 
             if depth_raw > 0:
-                self.person_distance = depth_raw * self.depth_scale
+                dist = depth_raw * self.depth_scale
+                bx, by, bz = self.pixel_to_3d(ref_x, ref_y, dist)
+
+                # EMA smoothing
+                if not self.ema_initialized:
+                    self.person_distance = dist
+                    self.person_x = bx
+                    self.person_y = by
+                    self.ema_initialized = True
+                else:
+                    a = self.ema_alpha
+                    self.person_distance = a * dist + (1 - a) * self.person_distance
+                    self.person_x = a * bx + (1 - a) * self.person_x
+                    self.person_y = a * by + (1 - a) * self.person_y
+
                 self.person_detected = True
 
-                # Publish body position
-                bx, by, bz = self.pixel_to_3d(ref_x, ref_y, self.person_distance)
-                self.pos_pub.publish(self.make_pointstamped(bx, by, bz))
+                # Publish smoothed body position
+                self.pos_pub.publish(self.make_pointstamped(self.person_x, self.person_y, self.person_distance))
 
                 # Publish distance
                 d = Float32()
@@ -218,8 +240,19 @@ class PersonTrackerNode(Node):
                     if hd > 0:
                         hd_m = hd * self.depth_scale
                         hx, hy, hz = self.pixel_to_3d(hu, hv, hd_m)
-                        self.hand_position = (hx, hy, hz)
-                        self.hand_pub.publish(self.make_pointstamped(hx, hy, hz))
+
+                        # EMA smoothing for hand
+                        if not self.hand_ema_initialized:
+                            self.hand_x, self.hand_y, self.hand_z = hx, hy, hz
+                            self.hand_ema_initialized = True
+                        else:
+                            a = self.ema_alpha
+                            self.hand_x = a * hx + (1 - a) * self.hand_x
+                            self.hand_y = a * hy + (1 - a) * self.hand_y
+                            self.hand_z = a * hz + (1 - a) * self.hand_z
+
+                        self.hand_position = (self.hand_x, self.hand_y, self.hand_z)
+                        self.hand_pub.publish(self.make_pointstamped(self.hand_x, self.hand_y, self.hand_z))
                         if self.debug_window:
                             cv2.circle(cv_image, (hu, hv), 8, (255, 0, 255), -1)
                             cv2.putText(cv_image, 'HAND', (hu + 10, hv),
