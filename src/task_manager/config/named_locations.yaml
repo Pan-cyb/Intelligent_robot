@@ -1,0 +1,45 @@
+locations:
+  bedroom_bedside:
+    frame_id: map
+    orientation:
+      w: 0.006480696461358597
+      x: 0.0
+      y: 0.0
+      z: 0.9999790000661892
+    position:
+      x: 2.748361587524414
+      y: 2.5320353507995605
+      z: 0.0
+  charger:
+    frame_id: map
+    orientation:
+      w: 0.9999798217735577
+      x: 0.0
+      y: 0.0
+      z: -0.006352640846440272
+    position:
+      x: -0.08770979940891266
+      y: 0.22543296217918396
+      z: 0.0
+  kitchen:
+    frame_id: map
+    orientation:
+      w: 0.029085849390666073
+      x: 0.0
+      y: 0.0
+      z: 0.9995769171830767
+    position:
+      x: 2.5430777072906494
+      y: 6.046817302703857
+      z: 0.0
+  livingroom_sofa:
+    frame_id: map
+    orientation:
+      w: 0.6665529181138458
+      x: 0.0
+      y: 0.0
+      z: 0.7454577166774228
+    position:
+      x: 3.6611907482147217
+      y: 12.122758865356445
+      z: 0.0

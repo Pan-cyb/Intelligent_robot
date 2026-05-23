@@ -14,12 +14,21 @@ find_package(tf2_ros REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
 # Nav2 依赖
 find_package(nav2_core REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(nav2_controller REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/SavePose.srv"
+  "srv/GetPose.srv"
+  "srv/ListPoses.srv"
+  "srv/DeletePose.srv"
+  DEPENDENCIES geometry_msgs
+)
 
 # 手动链接serial库（关键：指定手动编译的库路径）
 include_directories(
@@ -55,12 +64,18 @@ target_link_libraries(base_controller_node
 install(TARGETS base_controller_node
   DESTINATION lib/${PROJECT_NAME})
 
+install(PROGRAMS
+  scripts/waypoint_manager
+  scripts/waypoint_manager.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # 安装头文件（到include目录，非share）
 install(DIRECTORY include/
   DESTINATION include/${PROJECT_NAME})
 
 # 安装参数/地图/启动/RViz文件（仅保留必要目录，删除src/include）
-install(DIRECTORY param/ maps/ launch/ rviz/
+install(DIRECTORY param/ maps/ launch/ rviz/ doc/
   DESTINATION share/${PROJECT_NAME}/
 )
 
