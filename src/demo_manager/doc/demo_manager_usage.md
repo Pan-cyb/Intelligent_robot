@@ -102,13 +102,10 @@ it only when visual debugging is needed:
 ros2 launch task_manager robot_server.launch.py use_rviz:=true
 ```
 
-Camera perception, person tracking, follower controller, and debug windows are
-also disabled by default for a lightweight VSCode terminal demo. Enable them only
-when the demo needs visual fall detection or following:
+Camera perception, person tracking, and follower controller are enabled by
+default for the final demo. Debug windows stay disabled by default. Enable them
+only when visual debugging is needed:
 
 ```bash
-ros2 launch task_manager robot_server.launch.py \
-  enable_person_tracker:=true \
-  enable_follower_controller:=true \
-  debug_window:=true
+ros2 launch task_manager robot_server.launch.py debug_window:=true
 ```

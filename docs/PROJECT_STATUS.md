@@ -23,8 +23,8 @@ ROSA 默认 action tools 现在只暴露高层任务工具，不直接调用 Nav
 
 ```text
 robot_server.launch.py
-  默认关闭 RViz、摄像头、person_tracker、follower_controller、debug window。
-  需要视觉/跟随时再通过 launch 参数显式打开。
+  默认启动摄像头、person_tracker 和 follower_controller。
+  默认关闭 RViz 和 debug window，减少图形窗口负载。
 
 demo_manager
   独立负责最终 demo 流程编排。
@@ -48,16 +48,6 @@ demo_manager
 
 ```bash
 ros2 launch task_manager robot_server.launch.py enable_demo_manager:=true enable_rosa_always_listen:=true
-```
-
-如需视觉/跟随链路：
-
-```bash
-ros2 launch task_manager robot_server.launch.py \
-  enable_demo_manager:=true \
-  enable_rosa_always_listen:=true \
-  enable_person_tracker:=true \
-  enable_follower_controller:=true
 ```
 
 如需 RViz：
@@ -114,10 +104,10 @@ task_manager / robot_server:
 ros2 launch task_manager robot_server.launch.py
 ```
 
-当前默认采用轻量启动，不启动视觉感知、跟随执行器、RViz 或 debug window；如需打开视觉跟随：
+当前默认启动视觉感知和跟随执行器，但不启动 RViz 或 debug window；如需关闭视觉跟随：
 
 ```bash
-ros2 launch task_manager robot_server.launch.py enable_person_tracker:=true enable_follower_controller:=true
+ros2 launch task_manager robot_server.launch.py enable_person_tracker:=false enable_follower_controller:=false
 ```
 
 `src/follower_controller/launch/caregiving.launch.py` 保留为 follower 联调/历史测试入口。
