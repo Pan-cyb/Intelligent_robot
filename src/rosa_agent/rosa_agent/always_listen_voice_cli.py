@@ -8,6 +8,7 @@ from rosa_agent.voice import record_wav_vad, speak, transcribe
 
 
 WAKE_WORD = "小智"
+WAKE_WORD_ALIASES = (WAKE_WORD, "小志")
 MIN_COMMAND_LENGTH = 2
 NOISE_TEXTS = {
     "啊",
@@ -65,6 +66,13 @@ def _is_noise_command(text: str) -> bool:
     return normalized in NOISE_TEXTS
 
 
+def _matched_wake_word(text: str) -> str | None:
+    for word in WAKE_WORD_ALIASES:
+        if word in text:
+            return word
+    return None
+
+
 def _listen_command_until_valid(asr) -> str:
     deadline = time.monotonic() + max(1, asr.command_window_sec)
     attempt = 1
@@ -103,10 +111,11 @@ def main() -> None:
                 continue
 
             print(f"\n识别：{wake_text}")
-            if WAKE_WORD not in wake_text:
+            matched_wake_word = _matched_wake_word(wake_text)
+            if matched_wake_word is None:
                 continue
 
-            print(f"检测到唤醒词：{WAKE_WORD}")
+            print(f"检测到唤醒词：{matched_wake_word}")
 
             print("SPEAK_ACK：我在。")
             _speak_safely("我在。", tts)
