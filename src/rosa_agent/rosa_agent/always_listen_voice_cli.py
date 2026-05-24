@@ -73,6 +73,11 @@ def _matched_wake_word(text: str) -> str | None:
     return None
 
 
+def _command_after_wake_word(text: str, wake_word: str) -> str:
+    _, _, command = text.partition(wake_word)
+    return _normalize_asr_text(command)
+
+
 def _listen_command_until_valid(asr) -> str:
     deadline = time.monotonic() + max(1, asr.command_window_sec)
     attempt = 1
@@ -80,7 +85,7 @@ def _listen_command_until_valid(asr) -> str:
         remaining = max(1, int(deadline - time.monotonic()))
         timeout = min(asr.command_listen_timeout_sec, remaining)
         command_text = _listen_and_transcribe(
-            f"LISTEN_COMMAND：请说命令... attempt={attempt}",
+            "请说命令...",
             asr,
             listen_timeout_sec=timeout,
         )
@@ -106,7 +111,7 @@ def main() -> None:
 
     while True:
         try:
-            wake_text = _listen_and_transcribe("WAIT_WAKE_WORD：监听唤醒词...", asr)
+            wake_text = _listen_and_transcribe("等待唤醒词...", asr)
             if not wake_text:
                 continue
 
@@ -116,13 +121,17 @@ def main() -> None:
                 continue
 
             print(f"检测到唤醒词：{matched_wake_word}")
+            command_text = _command_after_wake_word(wake_text, matched_wake_word)
+            if command_text and _is_noise_command(command_text):
+                command_text = ""
 
-            print("SPEAK_ACK：我在。")
-            _speak_safely("我在。", tts)
-            if asr.post_tts_cooldown_sec > 0:
-                time.sleep(asr.post_tts_cooldown_sec)
+            if not command_text:
+                print("我在。")
+                _speak_safely("我在。", tts)
+                if asr.post_tts_cooldown_sec > 0:
+                    time.sleep(asr.post_tts_cooldown_sec)
 
-            command_text = _listen_command_until_valid(asr)
+                command_text = _listen_command_until_valid(asr)
             if not command_text:
                 print("没有听清楚。")
                 _speak_safely("没有听清楚。", tts)
