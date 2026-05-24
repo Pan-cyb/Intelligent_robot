@@ -66,6 +66,11 @@ class ASRConfig:
     audio_channels: str
     audio_format: str
     vad_threshold: int
+    vad_adaptive: bool
+    vad_calibrate_ms: int
+    vad_margin: int
+    vad_release_margin: int
+    vad_debug: bool
     vad_start_frames: int
     vad_silence_ms: int
     vad_pre_roll_ms: int
@@ -118,6 +123,11 @@ def asr_config() -> ASRConfig:
         audio_channels=os.getenv("AUDIO_CHANNELS", "1"),
         audio_format=os.getenv("AUDIO_FORMAT", "wav"),
         vad_threshold=int(os.getenv("ASR_VAD_THRESHOLD", "700")),
+        vad_adaptive=env_bool("ASR_VAD_ADAPTIVE", True),
+        vad_calibrate_ms=int(os.getenv("ASR_VAD_CALIBRATE_MS", "1000")),
+        vad_margin=int(os.getenv("ASR_VAD_MARGIN", "900")),
+        vad_release_margin=int(os.getenv("ASR_VAD_RELEASE_MARGIN", "400")),
+        vad_debug=env_bool("ASR_VAD_DEBUG", False),
         vad_start_frames=int(os.getenv("ASR_VAD_START_FRAMES", "2")),
         vad_silence_ms=int(os.getenv("ASR_VAD_SILENCE_MS", "900")),
         vad_pre_roll_ms=int(os.getenv("ASR_VAD_PRE_ROLL_MS", "300")),

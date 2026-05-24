@@ -228,13 +228,20 @@ ros2 run rosa_agent rosa_always_listen
 WAIT_WAKE_WORD  监听“小智”，并兼容 ASR 常见同音结果“小志”
 SPEAK_ACK       检测到唤醒词后播放“我在。”
 LISTEN_COMMAND  播放结束后监听下一句话
-PROCESS_COMMAND 调用 agent.invoke(command_text)，再播放 ROSA 回复
+PROCESS_COMMAND 根据意图分流到高层任务、普通聊天或 ROSA tool agent，再播放 ROSA 回复
 ```
 
-常驻语音代理使用简单音量阈值 VAD。可在 `.env` 中调节：
+常驻语音代理使用 RMS 音量 VAD，默认启用环境底噪自适应。启动每轮监听时会先采样短时间环境音，实际启动阈值为 `max(ASR_VAD_THRESHOLD, noise_floor + ASR_VAD_MARGIN)`，录音结束阈值为 `max(ASR_VAD_THRESHOLD, noise_floor + ASR_VAD_RELEASE_MARGIN)`。
+
+可在 `.env` 中调节：
 
 ```bash
 ASR_VAD_THRESHOLD=700
+ASR_VAD_ADAPTIVE=1
+ASR_VAD_CALIBRATE_MS=1000
+ASR_VAD_MARGIN=900
+ASR_VAD_RELEASE_MARGIN=400
+ASR_VAD_DEBUG=0
 ASR_VAD_START_FRAMES=2
 ASR_VAD_SILENCE_MS=900
 ASR_VAD_PRE_ROLL_MS=300
@@ -244,6 +251,8 @@ ASR_COMMAND_LISTEN_TIMEOUT_SEC=8
 ```
 
 `ASR_VAD_LISTEN_TIMEOUT_SEC=0` 表示等待唤醒词时一直监听。`ASR_COMMAND_LISTEN_TIMEOUT_SEC` 控制唤醒后等待命令的时间窗口。
+
+如果现场底噪接近人声，先设置 `ASR_VAD_DEBUG=1` 观察 `noise_floor`、`start_threshold` 和说话时 RMS。误触发环境音时优先增大 `ASR_VAD_MARGIN`；人声触发不了时优先减小 `ASR_VAD_MARGIN` 或检查麦克风增益。`ASR_VAD_RELEASE_MARGIN` 应低于 `ASR_VAD_MARGIN`，用于让一句话中短暂停顿不立刻截断。
 
 常驻语音代理在命令窗口中会忽略极短 ASR 文本和常见噪声词，例如“啊”“嗯”“呃”。如果被噪声误触发，它会继续在命令窗口内等待下一句话，直到收到有效命令或窗口超时。
 

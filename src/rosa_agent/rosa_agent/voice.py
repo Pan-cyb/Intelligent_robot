@@ -6,6 +6,7 @@ import tempfile
 import time
 import wave
 from pathlib import Path
+from statistics import median
 
 from openai import OpenAI
 import requests
@@ -53,6 +54,7 @@ def record_wav_vad(
     sample_width = 2
     frame_ms = 100
     frame_bytes = int(sample_rate * channels * sample_width * frame_ms / 1000)
+    calibrate_frames = max(0, int(config.vad_calibrate_ms / frame_ms))
     silence_frames_needed = max(1, int(config.vad_silence_ms / frame_ms))
     pre_roll_frames = max(0, int(config.vad_pre_roll_ms / frame_ms))
     max_frames = max(1, int(config.vad_max_seconds * 1000 / frame_ms))
@@ -69,6 +71,10 @@ def record_wav_vad(
     speech_started = False
     loud_frames = 0
     silence_frames = 0
+    calibration_rms_values: list[int] = []
+    noise_floor = 0
+    start_threshold = config.vad_threshold
+    release_threshold = config.vad_threshold
 
     print(prompt)
     try:
@@ -97,10 +103,31 @@ def record_wav_vad(
                 break
 
             rms = audioop.rms(chunk, sample_width)
-            is_loud = rms >= config.vad_threshold
+            if config.vad_adaptive and not speech_started and len(calibration_rms_values) < calibrate_frames:
+                pre_roll.append(chunk)
+                calibration_rms_values.append(rms)
+                if len(calibration_rms_values) == calibrate_frames:
+                    noise_floor = int(median(calibration_rms_values))
+                    start_threshold = max(config.vad_threshold, noise_floor + config.vad_margin)
+                    release_threshold = max(
+                        config.vad_threshold,
+                        noise_floor + config.vad_release_margin,
+                    )
+                    if config.vad_debug:
+                        print(
+                            "VAD calibration: "
+                            f"noise_floor={noise_floor}, "
+                            f"start_threshold={start_threshold}, "
+                            f"release_threshold={release_threshold}"
+                        )
+                continue
+
+            is_loud = rms >= start_threshold
 
             if not speech_started:
                 pre_roll.append(chunk)
+                if config.vad_debug:
+                    print(f"VAD wait: rms={rms}, threshold={start_threshold}")
                 if is_loud:
                     loud_frames += 1
                 else:
@@ -114,7 +141,9 @@ def record_wav_vad(
                 continue
 
             heard_frames.append(chunk)
-            if is_loud:
+            if config.vad_debug:
+                print(f"VAD record: rms={rms}, release_threshold={release_threshold}")
+            if rms >= release_threshold:
                 silence_frames = 0
             else:
                 silence_frames += 1
