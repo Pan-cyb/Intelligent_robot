@@ -10,6 +10,14 @@ import numpy as np
 import mediapipe as mp
 
 
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {'0', 'false', 'no', 'off', ''}
+    return bool(value)
+
+
 class PersonTrackerNode(Node):
     """Detect person, measure distance, detect falls, and locate hands using MediaPipe Holistic."""
 
@@ -34,7 +42,7 @@ class PersonTrackerNode(Node):
         self.fall_tilt_threshold = self.get_parameter('fall_tilt_threshold').value
         self.detection_conf = self.get_parameter('detection_confidence').value
         self.tracking_conf = self.get_parameter('tracking_confidence').value
-        self.debug_window = self.get_parameter('debug_window').value
+        self.debug_window = _as_bool(self.get_parameter('debug_window').value)
         self.ema_alpha = self.get_parameter('ema_alpha').value
 
         # ========== CV Bridge ==========
@@ -125,9 +133,9 @@ class PersonTrackerNode(Node):
         optical_z = depth
         return optical_z, -optical_x, -optical_y
 
-    def make_pointstamped(self, x, y, z, frame_id='camera_link'):
+    def make_pointstamped(self, x, y, z, frame_id='camera_link', stamp=None):
         p = PointStamped()
-        p.header.stamp = self.get_clock().now().to_msg()
+        p.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
         p.header.frame_id = frame_id
         p.point.x = float(x)
         p.point.y = float(y)
@@ -219,7 +227,14 @@ class PersonTrackerNode(Node):
                 self.person_detected = True
 
                 # Publish smoothed body position
-                self.pos_pub.publish(self.make_pointstamped(self.person_x, self.person_y, self.person_z))
+                self.pos_pub.publish(
+                    self.make_pointstamped(
+                        self.person_x,
+                        self.person_y,
+                        self.person_z,
+                        stamp=msg.header.stamp,
+                    )
+                )
 
                 # Publish distance
                 d = Float32()
@@ -261,7 +276,14 @@ class PersonTrackerNode(Node):
                             self.hand_z = a * hz + (1 - a) * self.hand_z
 
                         self.hand_position = (self.hand_x, self.hand_y, self.hand_z)
-                        self.hand_pub.publish(self.make_pointstamped(self.hand_x, self.hand_y, self.hand_z))
+                        self.hand_pub.publish(
+                            self.make_pointstamped(
+                                self.hand_x,
+                                self.hand_y,
+                                self.hand_z,
+                                stamp=msg.header.stamp,
+                            )
+                        )
                         if self.debug_window:
                             cv2.circle(cv_image, (hu, hv), 8, (255, 0, 255), -1)
                             cv2.putText(cv_image, 'HAND', (hu + 10, hv),
@@ -325,7 +347,8 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        cv2.destroyAllWindows()
+        if node.debug_window:
+            cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
 

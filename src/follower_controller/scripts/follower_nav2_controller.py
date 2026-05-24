@@ -93,10 +93,14 @@ class FollowerNav2Controller(Node):
         return qz, qw
 
     def transform_to_map(self, point_stamped: PointStamped):
-        """Transform a PointStamped to map frame. Returns PointStamped or None."""
+        """Transform a PointStamped to map frame using the latest available TF."""
+        latest_point = PointStamped()
+        latest_point.header.frame_id = point_stamped.header.frame_id
+        latest_point.header.stamp = rclpy.time.Time().to_msg()
+        latest_point.point = point_stamped.point
         try:
             return self.tf_buffer.transform(
-                point_stamped,
+                latest_point,
                 'map',
                 timeout=rclpy.duration.Duration(seconds=0.5),
             )
@@ -134,7 +138,8 @@ class FollowerNav2Controller(Node):
         qz, qw = self.yaw_to_quaternion(yaw)
 
         pose = PoseStamped()
-        pose.header = target_map.header
+        pose.header.frame_id = 'map'
+        pose.header.stamp = self.get_clock().now().to_msg()
         pose.pose.position.x = goal_x
         pose.pose.position.y = goal_y
         pose.pose.position.z = 0.0
