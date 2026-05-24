@@ -1,8 +1,8 @@
 from pathlib import Path
 import time
 
-from rosa_agent.agent import create_agent
-from rosa_agent.cli import route_high_level_command
+from rosa_agent.agent import create_agent, create_llm
+from rosa_agent.cli import reply_to_user
 from rosa_agent.config import asr_config, tts_config
 from rosa_agent.voice import record_wav_vad, speak, transcribe
 
@@ -90,6 +90,7 @@ def _listen_command_until_valid(asr) -> str:
 
 def main() -> None:
     agent = create_agent()
+    llm = create_llm()
     asr = asr_config()
     tts = tts_config()
 
@@ -119,9 +120,7 @@ def main() -> None:
                 continue
 
             print(f"\n命令：{command_text}")
-            reply = route_high_level_command(command_text)
-            if reply is None:
-                reply = agent.invoke(command_text)
+            reply = reply_to_user(command_text, agent=agent, llm=llm)
             print(f"\nROSA：{reply}")
             _speak_safely(str(reply), tts)
 

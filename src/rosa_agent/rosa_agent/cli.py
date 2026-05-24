@@ -1,4 +1,6 @@
-from rosa_agent.agent import create_agent
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from rosa_agent.agent import create_agent, create_llm
 from rosa_agent.action_tools import (
     cancel_current_task,
     get_weather_advice,
@@ -19,6 +21,73 @@ LOCATION_ALIASES = {
 }
 
 DEFAULT_WEATHER_LOCATION = "成都"
+
+GENERAL_CHAT_SYSTEM_PROMPT = (
+    "你是养老陪伴机器人 ROSA 的自然语言对话模块。"
+    "当用户只是问候、闲聊、表达情绪、询问你的感受、让你陪聊、讲故事或回答常识问题时，"
+    "请像普通语义大模型一样自然、简洁、温和地中文回复。"
+    "不要声称已经查询机器人状态，不要提到 ROS 工具、节点或系统日志，"
+    "也不要主动建议启动机器人任务，除非用户明确提出机器人任务需求。"
+)
+
+GENERAL_CHAT_KEYWORDS = (
+    "你好",
+    "您好",
+    "早上好",
+    "中午好",
+    "下午好",
+    "晚上好",
+    "晚安",
+    "谢谢",
+    "感谢",
+    "辛苦",
+    "感觉怎么样",
+    "你怎么样",
+    "你好吗",
+    "你还好吗",
+    "你是谁",
+    "介绍一下你",
+    "陪我聊",
+    "聊天",
+    "讲个故事",
+    "讲笑话",
+    "开心",
+    "难过",
+    "无聊",
+    "害怕",
+    "想你",
+)
+
+ROBOT_CONTEXT_KEYWORDS = (
+    "机器人",
+    "小车",
+    "底盘",
+    "导航",
+    "任务",
+    "状态",
+    "节点",
+    "日志",
+    "启动",
+    "运行",
+    "系统",
+    "服务",
+    "ros",
+    "ros2",
+    "rviz",
+    "nav2",
+    "雷达",
+    "地图",
+    "定位",
+    "跟随",
+    "巡检",
+    "叫醒",
+    "取消",
+    "停止",
+    "充电",
+    "天气",
+    "气温",
+    "下雨",
+)
 
 
 def _extract_weather_location(text: str) -> str:
@@ -49,8 +118,57 @@ def _invoke_tool(tool_func, tool_input: str = "") -> str:
     return str(tool_func.invoke(tool_input))
 
 
+def _normalize_text(text: str) -> str:
+    return text.strip().lower().replace(" ", "").replace("-", "_")
+
+
+def is_general_chat(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return False
+
+    if any(word in normalized for word in ROBOT_CONTEXT_KEYWORDS):
+        return False
+
+    if any(word in normalized for word in GENERAL_CHAT_KEYWORDS):
+        return True
+
+    if len(normalized) <= 18 and any(word in normalized for word in ("你", "我")):
+        return True
+
+    return False
+
+
+def should_use_tool_agent(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(word in normalized for word in ROBOT_CONTEXT_KEYWORDS)
+
+
+def reply_general_chat(text: str, llm=None) -> str:
+    chat_llm = llm or create_llm()
+    response = chat_llm.invoke(
+        [
+            SystemMessage(content=GENERAL_CHAT_SYSTEM_PROMPT),
+            HumanMessage(content=text),
+        ]
+    )
+    return str(response.content).strip()
+
+
+def reply_to_user(text: str, agent=None, llm=None) -> str:
+    direct_reply = route_high_level_command(text)
+    if direct_reply is not None:
+        return direct_reply
+
+    if is_general_chat(text) or not should_use_tool_agent(text):
+        return reply_general_chat(text, llm=llm)
+
+    tool_agent = agent or create_agent()
+    return str(tool_agent.invoke(text))
+
+
 def route_high_level_command(text: str) -> str | None:
-    normalized = text.strip().lower().replace(" ", "").replace("-", "_")
+    normalized = _normalize_text(text)
     if not normalized:
         return None
 
@@ -90,6 +208,7 @@ def route_high_level_command(text: str) -> str | None:
 
 def main() -> None:
     agent = create_agent()
+    llm = create_llm()
 
     while True:
         q = input("\nROSA> ").strip()
@@ -99,15 +218,11 @@ def main() -> None:
 
         if q in {"/new", "new", "新对话"}:
             agent = create_agent()
+            llm = create_llm()
             print("已开始新对话。")
             continue
 
-        direct_reply = route_high_level_command(q)
-        if direct_reply is not None:
-            print(direct_reply)
-            continue
-
-        print(agent.invoke(q))
+        print(reply_to_user(q, agent=agent, llm=llm))
 
 
 if __name__ == "__main__":
