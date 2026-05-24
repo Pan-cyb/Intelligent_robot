@@ -5,7 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import IfElseSubstitution, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -39,6 +39,12 @@ def generate_launch_description():
     demo_companion_target = LaunchConfiguration("demo_companion_target")
     demo_companion_text = LaunchConfiguration("demo_companion_text")
     enable_rosa_always_listen = LaunchConfiguration("enable_rosa_always_listen")
+    separate_demo_terminals = LaunchConfiguration("separate_demo_terminals")
+    separate_terminal_prefix = IfElseSubstitution(
+        separate_demo_terminals,
+        "xterm -hold -e",
+        "",
+    )
 
     return LaunchDescription(
         [
@@ -66,6 +72,7 @@ def generate_launch_description():
                 default_value="我陪您到客厅坐一会儿，有需要可以随时叫我。",
             ),
             DeclareLaunchArgument("enable_rosa_always_listen", default_value="false"),
+            DeclareLaunchArgument("separate_demo_terminals", default_value="false"),
             IncludeLaunchDescription(PythonLaunchDescriptionSource(navigation_launch)),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(ascamera_launch),
@@ -123,6 +130,7 @@ def generate_launch_description():
                 executable="task_manager_node",
                 name="task_manager",
                 output="screen",
+                prefix=separate_terminal_prefix,
                 parameters=[
                     {
                         "locations_file": locations_file,
@@ -149,6 +157,7 @@ def generate_launch_description():
                 executable="demo_manager_node",
                 name="demo_manager",
                 output="screen",
+                prefix=separate_terminal_prefix,
                 parameters=[
                     {
                         "start_delay_sec": demo_start_delay_sec,
@@ -166,6 +175,7 @@ def generate_launch_description():
                 executable="rosa_always_listen",
                 name="rosa_always_listen",
                 output="screen",
+                prefix=separate_terminal_prefix,
                 condition=IfCondition(enable_rosa_always_listen),
             ),
         ]

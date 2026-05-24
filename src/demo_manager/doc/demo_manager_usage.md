@@ -82,3 +82,20 @@ ros2 launch task_manager robot_server.launch.py \
 
 This starts the normal robot server stack, optional demo manager, and optional
 ROSA always-listen voice entrypoint in one launch.
+
+For field demos, the three key logs can be split into separate `xterm` windows:
+
+```bash
+ros2 launch task_manager robot_server.launch.py \
+  enable_demo_manager:=true \
+  enable_rosa_always_listen:=true \
+  separate_demo_terminals:=true
+```
+
+This opens separate terminals for:
+
+```text
+task_manager
+demo_manager
+rosa_always_listen
+```
