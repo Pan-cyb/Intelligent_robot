@@ -6,7 +6,6 @@ import tempfile
 import time
 import wave
 from pathlib import Path
-from statistics import median
 
 from openai import OpenAI
 import requests
@@ -54,6 +53,7 @@ def record_wav_vad(
     sample_width = 2
     frame_ms = 100
     frame_bytes = int(sample_rate * channels * sample_width * frame_ms / 1000)
+    warmup_frames = max(0, int(config.vad_warmup_ms / frame_ms))
     calibrate_frames = max(0, int(config.vad_calibrate_ms / frame_ms))
     silence_frames_needed = max(1, int(config.vad_silence_ms / frame_ms))
     pre_roll_frames = max(0, int(config.vad_pre_roll_ms / frame_ms))
@@ -71,6 +71,7 @@ def record_wav_vad(
     speech_started = False
     loud_frames = 0
     silence_frames = 0
+    warmup_seen = 0
     calibration_rms_values: list[int] = []
     noise_floor = 0
     start_threshold = config.vad_threshold
@@ -103,11 +104,20 @@ def record_wav_vad(
                 break
 
             rms = audioop.rms(chunk, sample_width)
+
+            if config.vad_adaptive and not speech_started and warmup_seen < warmup_frames:
+                warmup_seen += 1
+                if config.vad_debug:
+                    print(f"VAD warmup: rms={rms}")
+                continue
+
             if config.vad_adaptive and not speech_started and len(calibration_rms_values) < calibrate_frames:
                 pre_roll.append(chunk)
                 calibration_rms_values.append(rms)
                 if len(calibration_rms_values) == calibrate_frames:
-                    noise_floor = int(median(calibration_rms_values))
+                    sorted_rms = sorted(calibration_rms_values)
+                    floor_index = min(len(sorted_rms) - 1, max(0, len(sorted_rms) // 4))
+                    noise_floor = sorted_rms[floor_index]
                     start_threshold = max(config.vad_threshold, noise_floor + config.vad_margin)
                     release_threshold = max(
                         config.vad_threshold,

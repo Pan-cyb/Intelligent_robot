@@ -67,6 +67,7 @@ class ASRConfig:
     audio_format: str
     vad_threshold: int
     vad_adaptive: bool
+    vad_warmup_ms: int
     vad_calibrate_ms: int
     vad_margin: int
     vad_release_margin: int
@@ -124,6 +125,7 @@ def asr_config() -> ASRConfig:
         audio_format=os.getenv("AUDIO_FORMAT", "wav"),
         vad_threshold=int(os.getenv("ASR_VAD_THRESHOLD", "700")),
         vad_adaptive=env_bool("ASR_VAD_ADAPTIVE", True),
+        vad_warmup_ms=int(os.getenv("ASR_VAD_WARMUP_MS", "500")),
         vad_calibrate_ms=int(os.getenv("ASR_VAD_CALIBRATE_MS", "1000")),
         vad_margin=int(os.getenv("ASR_VAD_MARGIN", "900")),
         vad_release_margin=int(os.getenv("ASR_VAD_RELEASE_MARGIN", "400")),

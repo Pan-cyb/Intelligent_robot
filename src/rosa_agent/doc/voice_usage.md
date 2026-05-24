@@ -238,6 +238,7 @@ PROCESS_COMMAND 根据意图分流到高层任务、普通聊天或 ROSA tool ag
 ```bash
 ASR_VAD_THRESHOLD=700
 ASR_VAD_ADAPTIVE=1
+ASR_VAD_WARMUP_MS=500
 ASR_VAD_CALIBRATE_MS=1000
 ASR_VAD_MARGIN=900
 ASR_VAD_RELEASE_MARGIN=400
@@ -251,6 +252,8 @@ ASR_COMMAND_LISTEN_TIMEOUT_SEC=8
 ```
 
 `ASR_VAD_LISTEN_TIMEOUT_SEC=0` 表示等待唤醒词时一直监听。`ASR_COMMAND_LISTEN_TIMEOUT_SEC` 控制唤醒后等待命令的时间窗口。
+
+`ASR_VAD_WARMUP_MS` 用于丢弃录音设备刚启动时的瞬态噪声，避免把启动噪声算进底噪。
 
 如果现场底噪接近人声，先设置 `ASR_VAD_DEBUG=1` 观察 `noise_floor`、`start_threshold` 和说话时 RMS。误触发环境音时优先增大 `ASR_VAD_MARGIN`；人声触发不了时优先减小 `ASR_VAD_MARGIN` 或检查麦克风增益。`ASR_VAD_RELEASE_MARGIN` 应低于 `ASR_VAD_MARGIN`，用于让一句话中短暂停顿不立刻截断。
 
