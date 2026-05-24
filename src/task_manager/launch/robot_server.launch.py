@@ -31,6 +31,14 @@ def generate_launch_description():
     fall_confirm_frames = LaunchConfiguration("fall_confirm_frames")
     observe_duration_sec = LaunchConfiguration("observe_duration_sec")
     person_seen_timeout_sec = LaunchConfiguration("person_seen_timeout_sec")
+    enable_demo_manager = LaunchConfiguration("enable_demo_manager")
+    demo_start_delay_sec = LaunchConfiguration("demo_start_delay_sec")
+    demo_auto_inspection_after_sec = LaunchConfiguration("demo_auto_inspection_after_sec")
+    demo_wakeup_target = LaunchConfiguration("demo_wakeup_target")
+    demo_wakeup_text = LaunchConfiguration("demo_wakeup_text")
+    demo_companion_target = LaunchConfiguration("demo_companion_target")
+    demo_companion_text = LaunchConfiguration("demo_companion_text")
+    enable_rosa_always_listen = LaunchConfiguration("enable_rosa_always_listen")
 
     return LaunchDescription(
         [
@@ -47,6 +55,17 @@ def generate_launch_description():
             DeclareLaunchArgument("fall_confirm_frames", default_value="5"),
             DeclareLaunchArgument("observe_duration_sec", default_value="5.0"),
             DeclareLaunchArgument("person_seen_timeout_sec", default_value="1.0"),
+            DeclareLaunchArgument("enable_demo_manager", default_value="false"),
+            DeclareLaunchArgument("demo_start_delay_sec", default_value="5.0"),
+            DeclareLaunchArgument("demo_auto_inspection_after_sec", default_value="300.0"),
+            DeclareLaunchArgument("demo_wakeup_target", default_value="bedroom_bedside"),
+            DeclareLaunchArgument("demo_wakeup_text", default_value="早上好，该起床了。"),
+            DeclareLaunchArgument("demo_companion_target", default_value="livingroom_sofa"),
+            DeclareLaunchArgument(
+                "demo_companion_text",
+                default_value="我陪您到客厅坐一会儿，有需要可以随时叫我。",
+            ),
+            DeclareLaunchArgument("enable_rosa_always_listen", default_value="false"),
             IncludeLaunchDescription(PythonLaunchDescriptionSource(navigation_launch)),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(ascamera_launch),
@@ -124,6 +143,30 @@ def generate_launch_description():
                 name="tts_node",
                 output="screen",
                 parameters=[{"tts_topic": tts_topic}],
+            ),
+            Node(
+                package="demo_manager",
+                executable="demo_manager_node",
+                name="demo_manager",
+                output="screen",
+                parameters=[
+                    {
+                        "start_delay_sec": demo_start_delay_sec,
+                        "auto_inspection_after_sec": demo_auto_inspection_after_sec,
+                        "wakeup_target": demo_wakeup_target,
+                        "wakeup_text": demo_wakeup_text,
+                        "companion_target": demo_companion_target,
+                        "companion_text": demo_companion_text,
+                    }
+                ],
+                condition=IfCondition(enable_demo_manager),
+            ),
+            Node(
+                package="rosa_agent",
+                executable="rosa_always_listen",
+                name="rosa_always_listen",
+                output="screen",
+                condition=IfCondition(enable_rosa_always_listen),
             ),
         ]
     )
