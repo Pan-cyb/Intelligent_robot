@@ -14,7 +14,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("demo_start_delay_sec", default_value="5.0"),
+            DeclareLaunchArgument("demo_start_delay_sec", default_value="30.0"),
             DeclareLaunchArgument("demo_auto_inspection_after_sec", default_value="300.0"),
             DeclareLaunchArgument("demo_wakeup_target", default_value="bedroom_bedside"),
             DeclareLaunchArgument("demo_wakeup_text", default_value="早上好，该起床了。"),

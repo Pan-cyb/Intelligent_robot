@@ -25,7 +25,7 @@ class DemoManagerNode(Node):
     def __init__(self) -> None:
         super().__init__("demo_manager")
 
-        self.declare_parameter("start_delay_sec", 5.0)
+        self.declare_parameter("start_delay_sec", 30.0)
         self.declare_parameter("auto_inspection_after_sec", 300.0)
         self.declare_parameter("wakeup_target", "bedroom_bedside")
         self.declare_parameter("wakeup_text", "早上好，该起床了。")
