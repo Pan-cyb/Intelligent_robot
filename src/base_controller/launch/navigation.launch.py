@@ -1,7 +1,9 @@
 import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -11,6 +13,7 @@ def generate_launch_description():
     map_path = os.path.join(pkg_share, 'my_map1.yaml')
     params_file = os.path.join(pkg_share, 'my_nav2_params.yaml')
     rviz_config = os.path.join(pkg_share, 'navigation.rviz')
+    use_rviz = LaunchConfiguration('use_rviz')
 
     common = {'use_sim_time': False}
     ldlidar_launch = IncludeLaunchDescription(
@@ -32,6 +35,7 @@ def generate_launch_description():
         )
 
     return LaunchDescription([
+        DeclareLaunchArgument('use_rviz', default_value='false'),
         ldlidar_launch,
         Node(
             package='base_controller',
@@ -93,6 +97,7 @@ def generate_launch_description():
             name='rviz2',
             output='screen',
             arguments=['-d', rviz_config],
-            parameters=[common]
+            parameters=[common],
+            condition=IfCondition(use_rviz),
         )
     ])

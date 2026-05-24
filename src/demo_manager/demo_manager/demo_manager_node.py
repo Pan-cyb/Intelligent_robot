@@ -13,8 +13,6 @@ class DemoStage(Enum):
     WAKE_UP = "WAKE_UP"
     COMPANION_NAVIGATE = "COMPANION_NAVIGATE"
     COMPANION_DIALOGUE = "COMPANION_DIALOGUE"
-    WAIT_FOR_INSPECTION_TIMER = "WAIT_FOR_INSPECTION_TIMER"
-    INSPECTION = "INSPECTION"
     WAIT_FOR_FOLLOW_TRIGGER = "WAIT_FOR_FOLLOW_TRIGGER"
     DONE = "DONE"
 
@@ -26,7 +24,6 @@ class DemoManagerNode(Node):
         super().__init__("demo_manager")
 
         self.declare_parameter("start_delay_sec", 30.0)
-        self.declare_parameter("auto_inspection_after_sec", 300.0)
         self.declare_parameter("wakeup_target", "bedroom_bedside")
         self.declare_parameter("wakeup_text", "早上好，该起床了。")
         self.declare_parameter("companion_target", "livingroom_sofa")
@@ -111,23 +108,8 @@ class DemoManagerNode(Node):
 
         if self._stage == DemoStage.COMPANION_DIALOGUE and self._task_completed():
             self._set_stage(
-                DemoStage.WAIT_FOR_INSPECTION_TIMER,
-                "companion dialogue completed",
-            )
-            return
-
-        if self._stage == DemoStage.WAIT_FOR_INSPECTION_TIMER:
-            if self._elapsed_since_demo_start() >= float(
-                self.get_parameter("auto_inspection_after_sec").value
-            ):
-                self._set_stage(DemoStage.INSPECTION, "inspection timer elapsed")
-                self._start_task("inspection", "", "")
-            return
-
-        if self._stage == DemoStage.INSPECTION and self._task_completed():
-            self._set_stage(
                 DemoStage.WAIT_FOR_FOLLOW_TRIGGER,
-                "inspection completed; ROSA may trigger follow",
+                "companion dialogue completed; ROSA may trigger follow",
             )
             self.get_logger().info(
                 "Demo scripted flow complete. Waiting for user voice command to trigger follow."
@@ -216,8 +198,6 @@ class DemoManagerNode(Node):
                     str(self.get_parameter("companion_text").value),
                 )
             )
-        elif self._stage == DemoStage.INSPECTION:
-            self._retry_later(lambda: self._start_task("inspection", "", ""))
 
     def _retry_later(self, callback) -> None:
         retry_interval = float(self.get_parameter("retry_interval_sec").value)

@@ -6,7 +6,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     start_delay_sec = LaunchConfiguration("demo_start_delay_sec")
-    auto_inspection_after_sec = LaunchConfiguration("demo_auto_inspection_after_sec")
     wakeup_target = LaunchConfiguration("demo_wakeup_target")
     wakeup_text = LaunchConfiguration("demo_wakeup_text")
     companion_target = LaunchConfiguration("demo_companion_target")
@@ -15,7 +14,6 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("demo_start_delay_sec", default_value="30.0"),
-            DeclareLaunchArgument("demo_auto_inspection_after_sec", default_value="300.0"),
             DeclareLaunchArgument("demo_wakeup_target", default_value="bedroom_bedside"),
             DeclareLaunchArgument("demo_wakeup_text", default_value="早上好，该起床了。"),
             DeclareLaunchArgument("demo_companion_target", default_value="livingroom_sofa"),
@@ -31,7 +29,6 @@ def generate_launch_description():
                 parameters=[
                     {
                         "start_delay_sec": start_delay_sec,
-                        "auto_inspection_after_sec": auto_inspection_after_sec,
                         "wakeup_target": wakeup_target,
                         "wakeup_text": wakeup_text,
                         "companion_target": companion_target,

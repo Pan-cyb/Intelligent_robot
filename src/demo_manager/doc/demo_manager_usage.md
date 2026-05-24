@@ -34,8 +34,6 @@ INIT
   -> WAKE_UP
   -> COMPANION_NAVIGATE
   -> COMPANION_DIALOGUE
-  -> WAIT_FOR_INSPECTION_TIMER
-  -> INSPECTION
   -> WAIT_FOR_FOLLOW_TRIGGER
 ```
 
@@ -48,9 +46,7 @@ Detailed behavior:
 4. Wait until task_manager returns to IDLE.
 5. Call task_type="speak" with companion text.
 6. Wait until task_manager returns to IDLE.
-7. After demo start + 300 seconds, call task_type="inspection".
-8. Wait until inspection completes and task_manager returns to IDLE.
-9. Leave follow to ROSA voice command, for example "小智，跟着我".
+7. Leave follow to ROSA voice command, for example "小智，跟着我".
 ```
 
 Fall detection remains owned by `task_manager`: if `/fall_detected` is confirmed,
@@ -67,7 +63,6 @@ Useful arguments:
 ```bash
 ros2 launch demo_manager demo_manager.launch.py \
   demo_start_delay_sec:=30.0 \
-  demo_auto_inspection_after_sec:=300.0 \
   demo_wakeup_target:=bedroom_bedside \
   demo_companion_target:=livingroom_sofa
 ```
@@ -98,4 +93,22 @@ This opens separate terminals for:
 task_manager
 demo_manager
 rosa_always_listen
+```
+
+For lower CPU/GPU load during the final demo, RViz is disabled by default. Start
+it only when visual debugging is needed:
+
+```bash
+ros2 launch task_manager robot_server.launch.py use_rviz:=true
+```
+
+Camera perception, person tracking, follower controller, and debug windows are
+also disabled by default for a lightweight VSCode terminal demo. Enable them only
+when the demo needs visual fall detection or following:
+
+```bash
+ros2 launch task_manager robot_server.launch.py \
+  enable_person_tracker:=true \
+  enable_follower_controller:=true \
+  debug_window:=true
 ```

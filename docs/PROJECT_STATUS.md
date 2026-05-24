@@ -19,6 +19,56 @@ ROSA / 命令端发高层任务
 
 ROSA 默认 action tools 现在只暴露高层任务工具，不直接调用 Nav2、`/cmd_vel` 或底层动作序列。
 
+2026-05-24 最终综合 demo 已调整为轻量 VSCode 终端启动方案：
+
+```text
+robot_server.launch.py
+  默认关闭 RViz、摄像头、person_tracker、follower_controller、debug window。
+  需要视觉/跟随时再通过 launch 参数显式打开。
+
+demo_manager
+  独立负责最终 demo 流程编排。
+  不直接控制 Nav2、不发布 /cmd_vel、不执行单任务内部逻辑。
+  只通过 /robot_server/start_task 和 /robot_server/query_robot_state 驱动 task_manager。
+
+最终轻量 demo 流程：
+  WAKE_UP
+    -> task_type="wake_up", target="bedroom_bedside"
+  COMPANION_NAVIGATE
+    -> task_type="navigate", target="livingroom_sofa"
+  COMPANION_DIALOGUE
+    -> task_type="speak"
+  WAIT_FOR_FOLLOW_TRIGGER
+    -> 等 ROSA 语音触发 task_type="follow"
+```
+
+为降低卡顿，最终 demo 当前不再自动触发 inspection 巡航；`inspection` 单任务能力仍保留在 `task_manager`，可通过 `/robot_server/start_task` 手动触发。
+
+轻量启动：
+
+```bash
+ros2 launch task_manager robot_server.launch.py enable_demo_manager:=true enable_rosa_always_listen:=true
+```
+
+如需视觉/跟随链路：
+
+```bash
+ros2 launch task_manager robot_server.launch.py \
+  enable_demo_manager:=true \
+  enable_rosa_always_listen:=true \
+  enable_person_tracker:=true \
+  enable_follower_controller:=true
+```
+
+如需 RViz：
+
+```bash
+ros2 launch task_manager robot_server.launch.py \
+  enable_demo_manager:=true \
+  enable_rosa_always_listen:=true \
+  use_rviz:=true
+```
+
 2026-05-23 ROSA action tools 新增联网天气建议能力：
 
 ```text
@@ -64,10 +114,10 @@ task_manager / robot_server:
 ros2 launch task_manager robot_server.launch.py
 ```
 
-默认会启动视觉感知、跟随执行器和 debug window；如需关闭：
+当前默认采用轻量启动，不启动视觉感知、跟随执行器、RViz 或 debug window；如需打开视觉跟随：
 
 ```bash
-ros2 launch task_manager robot_server.launch.py enable_person_tracker:=false enable_follower_controller:=false debug_window:=false
+ros2 launch task_manager robot_server.launch.py enable_person_tracker:=true enable_follower_controller:=true
 ```
 
 `src/follower_controller/launch/caregiving.launch.py` 保留为 follower 联调/历史测试入口。
@@ -310,14 +360,14 @@ docs/handoff/
 ```bash
 cd /home/pan/Intelligent_robot
 source /opt/ros/humble/setup.bash
-colcon build --packages-select base_controller rosa_agent task_manager_interfaces task_manager
+colcon build --packages-select base_controller rosa_agent task_manager_interfaces task_manager demo_manager
 source install/setup.bash
 ```
 
-服务端：
+轻量综合 demo 服务端：
 
 ```bash
-ros2 launch task_manager robot_server.launch.py
+ros2 launch task_manager robot_server.launch.py enable_demo_manager:=true enable_rosa_always_listen:=true
 ```
 
 命令端：
@@ -395,6 +445,8 @@ src/task_manager_interfaces/srv/StartTask.srv
 src/task_manager_interfaces/srv/QueryRobotState.srv
 src/task_manager/config/named_locations.yaml
 src/task_manager/launch/robot_server.launch.py
+src/demo_manager/demo_manager/demo_manager_node.py
+src/demo_manager/launch/demo_manager.launch.py
 src/base_controller/launch/navigation.launch.py
 src/base_controller/launch/waypoint_calibration.launch.py
 src/rosa_agent/rosa_agent/voice.py

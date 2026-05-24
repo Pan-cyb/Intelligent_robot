@@ -27,13 +27,13 @@ def generate_launch_description():
     enable_camera = LaunchConfiguration("enable_camera")
     enable_person_tracker = LaunchConfiguration("enable_person_tracker")
     enable_follower_controller = LaunchConfiguration("enable_follower_controller")
+    use_rviz = LaunchConfiguration("use_rviz")
     debug_window = LaunchConfiguration("debug_window")
     fall_confirm_frames = LaunchConfiguration("fall_confirm_frames")
     observe_duration_sec = LaunchConfiguration("observe_duration_sec")
     person_seen_timeout_sec = LaunchConfiguration("person_seen_timeout_sec")
     enable_demo_manager = LaunchConfiguration("enable_demo_manager")
     demo_start_delay_sec = LaunchConfiguration("demo_start_delay_sec")
-    demo_auto_inspection_after_sec = LaunchConfiguration("demo_auto_inspection_after_sec")
     demo_wakeup_target = LaunchConfiguration("demo_wakeup_target")
     demo_wakeup_text = LaunchConfiguration("demo_wakeup_text")
     demo_companion_target = LaunchConfiguration("demo_companion_target")
@@ -55,15 +55,15 @@ def generate_launch_description():
             DeclareLaunchArgument("tts_topic", default_value="/tts_text"),
             DeclareLaunchArgument("task_command_topic", default_value="/task_command"),
             DeclareLaunchArgument("enable_camera", default_value="false"),
-            DeclareLaunchArgument("enable_person_tracker", default_value="true"),
-            DeclareLaunchArgument("enable_follower_controller", default_value="true"),
-            DeclareLaunchArgument("debug_window", default_value="true"),
+            DeclareLaunchArgument("enable_person_tracker", default_value="false"),
+            DeclareLaunchArgument("enable_follower_controller", default_value="false"),
+            DeclareLaunchArgument("use_rviz", default_value="false"),
+            DeclareLaunchArgument("debug_window", default_value="false"),
             DeclareLaunchArgument("fall_confirm_frames", default_value="5"),
             DeclareLaunchArgument("observe_duration_sec", default_value="5.0"),
             DeclareLaunchArgument("person_seen_timeout_sec", default_value="1.0"),
             DeclareLaunchArgument("enable_demo_manager", default_value="false"),
             DeclareLaunchArgument("demo_start_delay_sec", default_value="30.0"),
-            DeclareLaunchArgument("demo_auto_inspection_after_sec", default_value="300.0"),
             DeclareLaunchArgument("demo_wakeup_target", default_value="bedroom_bedside"),
             DeclareLaunchArgument("demo_wakeup_text", default_value="早上好，该起床了。"),
             DeclareLaunchArgument("demo_companion_target", default_value="livingroom_sofa"),
@@ -73,7 +73,10 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("enable_rosa_always_listen", default_value="false"),
             DeclareLaunchArgument("separate_demo_terminals", default_value="false"),
-            IncludeLaunchDescription(PythonLaunchDescriptionSource(navigation_launch)),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(navigation_launch),
+                launch_arguments={"use_rviz": use_rviz}.items(),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(ascamera_launch),
                 condition=IfCondition(
@@ -161,7 +164,6 @@ def generate_launch_description():
                 parameters=[
                     {
                         "start_delay_sec": demo_start_delay_sec,
-                        "auto_inspection_after_sec": demo_auto_inspection_after_sec,
                         "wakeup_target": demo_wakeup_target,
                         "wakeup_text": demo_wakeup_text,
                         "companion_target": demo_companion_target,
