@@ -66,7 +66,7 @@ Useful arguments:
 
 ```bash
 ros2 launch demo_manager demo_manager.launch.py \
-  demo_start_delay_sec:=5.0 \
+  demo_start_delay_sec:=30.0 \
   demo_auto_inspection_after_sec:=300.0 \
   demo_wakeup_target:=bedroom_bedside \
   demo_companion_target:=livingroom_sofa
