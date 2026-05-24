@@ -79,6 +79,7 @@ class ASRConfig:
     vad_listen_timeout_sec: int
     command_listen_timeout_sec: int
     command_window_sec: int
+    session_idle_timeout_sec: int
     post_tts_cooldown_sec: float
 
 
@@ -137,6 +138,7 @@ def asr_config() -> ASRConfig:
         vad_listen_timeout_sec=int(os.getenv("ASR_VAD_LISTEN_TIMEOUT_SEC", "0")),
         command_listen_timeout_sec=int(os.getenv("ASR_COMMAND_LISTEN_TIMEOUT_SEC", "8")),
         command_window_sec=int(os.getenv("ASR_COMMAND_WINDOW_SEC", "10")),
+        session_idle_timeout_sec=int(os.getenv("ASR_SESSION_IDLE_TIMEOUT_SEC", "60")),
         post_tts_cooldown_sec=float(os.getenv("ASR_POST_TTS_COOLDOWN_SEC", "0.4")),
     )
 

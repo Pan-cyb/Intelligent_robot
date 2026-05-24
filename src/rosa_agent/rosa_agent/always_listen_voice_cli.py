@@ -79,7 +79,11 @@ def _command_after_wake_word(text: str, wake_word: str) -> str:
 
 
 def _listen_command_until_valid(asr) -> str:
-    deadline = time.monotonic() + max(1, asr.command_window_sec)
+    return _listen_command_until_valid_for(asr, max(1, asr.command_window_sec))
+
+
+def _listen_command_until_valid_for(asr, window_sec: float) -> str:
+    deadline = time.monotonic() + max(1, window_sec)
     attempt = 1
     while time.monotonic() < deadline:
         remaining = max(1, int(deadline - time.monotonic()))
@@ -99,6 +103,13 @@ def _listen_command_until_valid(asr) -> str:
             continue
         return normalized
     return ""
+
+
+def _handle_command(command_text: str, agent, llm, tts) -> None:
+    print(f"\n命令：{command_text}")
+    reply = reply_to_user(command_text, agent=agent, llm=llm)
+    print(f"\nROSA：{reply}")
+    _speak_safely(str(reply), tts)
 
 
 def main() -> None:
@@ -137,10 +148,16 @@ def main() -> None:
                 _speak_safely("没有听清楚。", tts)
                 continue
 
-            print(f"\n命令：{command_text}")
-            reply = reply_to_user(command_text, agent=agent, llm=llm)
-            print(f"\nROSA：{reply}")
-            _speak_safely(str(reply), tts)
+            while command_text:
+                _handle_command(command_text, agent, llm, tts)
+                if asr.post_tts_cooldown_sec > 0:
+                    time.sleep(asr.post_tts_cooldown_sec)
+                command_text = _listen_command_until_valid_for(
+                    asr,
+                    asr.session_idle_timeout_sec,
+                )
+
+            print("会话超时，重新等待唤醒词。")
 
         except KeyboardInterrupt:
             print("\n退出")
