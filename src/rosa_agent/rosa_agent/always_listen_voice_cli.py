@@ -7,7 +7,7 @@ from rosa_agent.config import asr_config, tts_config
 from rosa_agent.voice import record_wav_vad, speak, transcribe
 
 
-WAKE_WORD = "小金"
+WAKE_WORD = "小智"
 MIN_COMMAND_LENGTH = 2
 NOISE_TEXTS = {
     "啊",
@@ -94,7 +94,7 @@ def main() -> None:
     asr = asr_config()
     tts = tts_config()
 
-    print("ROSA 常驻语音代理已启动。等待唤醒词：小金。Ctrl+C 退出。")
+    print(f"ROSA 常驻语音代理已启动。等待唤醒词：{WAKE_WORD}。Ctrl+C 退出。")
 
     while True:
         try:

@@ -225,8 +225,8 @@ ros2 run rosa_agent rosa_always_listen
 交互流程：
 
 ```text
-WAIT_WAKE_WORD  只监听“小金”
-SPEAK_ACK       检测到“小金”后播放“我在。”
+WAIT_WAKE_WORD  只监听“小智”
+SPEAK_ACK       检测到“小智”后播放“我在。”
 LISTEN_COMMAND  播放结束后监听下一句话
 PROCESS_COMMAND 调用 agent.invoke(command_text)，再播放 ROSA 回复
 ```
