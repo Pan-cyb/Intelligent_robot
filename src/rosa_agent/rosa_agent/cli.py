@@ -1,9 +1,12 @@
 from rosa_agent.agent import create_agent
 from rosa_agent.action_tools import (
     cancel_current_task,
+    get_weather_advice,
     navigate_to_named_place,
     query_robot_state,
     speak_text,
+    start_following_task,
+    start_inspection_task,
     start_wakeup_task,
 )
 
@@ -14,6 +17,32 @@ LOCATION_ALIASES = {
     "charger": ("charger", "充电", "充电桩", "回充", "回去充电", "去充电", "回到充电桩"),
     "kitchen": ("kitchen", "厨房"),
 }
+
+DEFAULT_WEATHER_LOCATION = "成都"
+
+
+def _extract_weather_location(text: str) -> str:
+    cleaned = text.strip()
+    for token in (
+        "今天",
+        "明天",
+        "现在",
+        "当前",
+        "天气",
+        "气温",
+        "温度",
+        "下雨",
+        "降雨",
+        "会不会",
+        "怎么样",
+        "如何",
+        "吗",
+        "？",
+        "?",
+    ):
+        cleaned = cleaned.replace(token, "")
+    cleaned = cleaned.strip(" ，,。.")
+    return cleaned or DEFAULT_WEATHER_LOCATION
 
 
 def _invoke_tool(tool_func, tool_input: str = "") -> str:
@@ -33,6 +62,15 @@ def route_high_level_command(text: str) -> str | None:
 
     if any(word in normalized for word in ("叫醒", "起床", "wake")):
         return _invoke_tool(start_wakeup_task)
+
+    if any(word in normalized for word in ("跟随", "跟着", "follow")):
+        return _invoke_tool(start_following_task)
+
+    if any(word in normalized for word in ("巡检", "找人", "找老人", "inspection")):
+        return _invoke_tool(start_inspection_task)
+
+    if any(word in normalized for word in ("天气", "气温", "温度", "下雨", "降雨", "雨")):
+        return _invoke_tool(get_weather_advice, _extract_weather_location(text))
 
     if normalized.startswith(("说", "播报", "告诉")):
         for prefix in ("播报", "告诉", "说"):

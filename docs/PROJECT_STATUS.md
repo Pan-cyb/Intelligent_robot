@@ -19,6 +19,28 @@ ROSA / 命令端发高层任务
 
 ROSA 默认 action tools 现在只暴露高层任务工具，不直接调用 Nav2、`/cmd_vel` 或底层动作序列。
 
+2026-05-23 ROSA action tools 新增联网天气建议能力：
+
+```text
+get_weather_advice(location)
+```
+
+该工具使用 Open-Meteo 免 key API 查询地点天气和未来几小时预报，返回中文天气摘要和养老陪护建议，例如降雨时提醒收衣服、关窗、减少外出，高温时提醒补水，低温时提醒加衣。该工具只做信息查询和建议，不直接控制机器人底盘、Nav2 或 task_manager 状态。
+
+已修复 ROSA CLI 未调用天气工具的问题：
+
+```text
+根因：
+  get_weather_advice 已实现，但没有加入 DEFAULT_TOOLS。
+  rosa_cli 的直连路由也没有识别“天气/下雨/气温”等关键词。
+
+修复：
+  DEFAULT_TOOLS 加入 get_weather_advice、start_following_task、start_inspection_task。
+  rosa_cli 识别天气问题并直接调用 get_weather_advice(location)。
+```
+
+同日 `task_manager` 修复 Nav2 action 异步回调污染状态机风险：Nav2 goal response/result 现在绑定 generation token，取消、EMERGENCY、任务重置后旧回调会被忽略；INSPECTION 导航也纳入 watchdog 超时检查。
+
 2026-05-23 已完成视觉跟随架构职责重构：
 
 ```text
@@ -391,6 +413,7 @@ navigate_to_named_place(place_name)
 speak_text(text)
 start_following_task()
 start_inspection_task()
+get_weather_advice(location)
 cancel_current_task()
 query_robot_state()
 ```

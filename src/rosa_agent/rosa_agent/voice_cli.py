@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from rosa_agent.agent import create_agent
+from rosa_agent.cli import route_high_level_command
 from rosa_agent.config import asr_config, tts_config
 from rosa_agent.voice import record_wav, speak, transcribe
 
@@ -21,7 +22,9 @@ def main() -> None:
             if text.lower() in {"exit", "quit"} or text in {"退出", "结束"}:
                 break
 
-            reply = agent.invoke(text)
+            reply = route_high_level_command(text)
+            if reply is None:
+                reply = agent.invoke(text)
             print(f"\nROSA：{reply}")
             try:
                 speak(str(reply), config=tts)

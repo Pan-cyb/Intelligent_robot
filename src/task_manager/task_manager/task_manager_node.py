@@ -75,6 +75,8 @@ class TaskManagerNode(Node):
         self._active_task: RobotTask | None = None
         self._active_location: NamedLocation | None = None
         self._goal_handle = None
+        self._nav_goal_generation = 0
+        self._active_nav_goal_generation = 0
         self._navigation_started_at = None
         self._navigation_retry_count = 0
         self._conversation_timer = None
@@ -455,10 +457,26 @@ class TaskManagerNode(Node):
         else:
             self._publish_mode()
 
+        self._nav_goal_generation += 1
+        goal_generation = self._nav_goal_generation
+        self._active_nav_goal_generation = goal_generation
         future = self._navigate_client.send_goal_async(goal)
-        future.add_done_callback(self._on_goal_response)
+        future.add_done_callback(
+            lambda future, generation=goal_generation: self._on_goal_response(future, generation)
+        )
 
-    def _on_goal_response(self, future: Future) -> None:
+    def _on_goal_response(self, future: Future, generation: int) -> None:
+        if generation != self._active_nav_goal_generation:
+            self.get_logger().info("Stale Nav2 goal response ignored.")
+            return
+        if self._active_task is None and self._mode not in {
+            RobotMode.INSPECTION,
+            RobotMode.NAVIGATION,
+            RobotMode.SCHEDULED_TASK,
+        }:
+            self.get_logger().info("Nav2 goal response ignored with no active navigation task.")
+            return
+
         goal_handle = future.result()
         if not goal_handle.accepted:
             self._handle_navigation_failure("Nav2 rejected navigation goal.")
@@ -467,11 +485,13 @@ class TaskManagerNode(Node):
         self._goal_handle = goal_handle
         self.get_logger().info("Nav2 accepted navigation goal.")
         result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self._on_navigation_result)
+        result_future.add_done_callback(
+            lambda future, generation=generation: self._on_navigation_result(future, generation)
+        )
 
-    def _on_navigation_result(self, future: Future) -> None:
-        if self._cancel_requested:
-            self.get_logger().info("Navigation result received after cancellation; ignoring.")
+    def _on_navigation_result(self, future: Future, generation: int) -> None:
+        if generation != self._active_nav_goal_generation:
+            self.get_logger().info("Stale Nav2 result ignored.")
             return
         if self._active_task is None:
             self.get_logger().info("Navigation result received with no active task; ignoring.")
@@ -496,7 +516,9 @@ class TaskManagerNode(Node):
         self._handle_navigation_failure("Navigation finished with status=%s" % status_name)
 
     def _watchdog(self) -> None:
-        if self._mode != RobotMode.NAVIGATION or self._navigation_started_at is None:
+        if self._mode not in {RobotMode.NAVIGATION, RobotMode.INSPECTION}:
+            return
+        if self._goal_handle is None or self._navigation_started_at is None:
             return
 
         elapsed = self.get_clock().now() - self._navigation_started_at
@@ -669,6 +691,7 @@ class TaskManagerNode(Node):
         self._active_task = None
         self._active_location = None
         self._goal_handle = None
+        self._active_nav_goal_generation = 0
         self._navigation_started_at = None
         self._navigation_retry_count = 0
         self._cancel_requested = False

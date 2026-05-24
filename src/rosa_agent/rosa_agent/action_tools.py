@@ -4,6 +4,7 @@ import signal
 import subprocess
 from pathlib import Path
 
+import requests
 from langchain.tools import tool
 
 from rosa_agent.config import RUNTIME_DIR, ros_setup_path, workspace_root
@@ -83,6 +84,86 @@ def _call_robot_query_state() -> str:
                 "task_manager_interfaces/srv/QueryRobotState {}"
             )
         }
+    )
+
+
+def _weather_code_text(code: int) -> str:
+    weather_codes = {
+        0: "晴",
+        1: "大部晴朗",
+        2: "局部多云",
+        3: "阴",
+        45: "雾",
+        48: "雾凇",
+        51: "小毛毛雨",
+        53: "中等毛毛雨",
+        55: "较强毛毛雨",
+        56: "冻毛毛雨",
+        57: "较强冻毛毛雨",
+        61: "小雨",
+        63: "中雨",
+        65: "大雨",
+        66: "冻雨",
+        67: "较强冻雨",
+        71: "小雪",
+        73: "中雪",
+        75: "大雪",
+        77: "雪粒",
+        80: "小阵雨",
+        81: "中等阵雨",
+        82: "强阵雨",
+        85: "小阵雪",
+        86: "强阵雪",
+        95: "雷暴",
+        96: "雷暴伴小冰雹",
+        99: "雷暴伴强冰雹",
+    }
+    return weather_codes.get(code, "未知天气")
+
+
+def _weather_advice(hourly: dict, location_name: str) -> str:
+    times = hourly.get("time", [])
+    temps = hourly.get("temperature_2m", [])
+    precip_probs = hourly.get("precipitation_probability", [])
+    precip = hourly.get("precipitation", [])
+    weather_codes = hourly.get("weather_code", [])
+    winds = hourly.get("wind_speed_10m", [])
+
+    if not times:
+        return f"没有查到 {location_name} 的逐小时天气。"
+
+    window = min(6, len(times))
+    max_rain_prob = max((precip_probs[i] or 0) for i in range(window)) if precip_probs else 0
+    total_precip = sum((precip[i] or 0.0) for i in range(window)) if precip else 0.0
+    max_wind = max((winds[i] or 0.0) for i in range(window)) if winds else 0.0
+    min_temp = min((temps[i] for i in range(window) if temps[i] is not None), default=None)
+    max_temp = max((temps[i] for i in range(window) if temps[i] is not None), default=None)
+    current_code = int(weather_codes[0]) if weather_codes else -1
+
+    suggestions = []
+    if max_rain_prob >= 60 or total_precip >= 1.0:
+        suggestions.append("接下来几小时有明显降雨风险，建议收衣服、关窗，老人尽量不要外出。")
+    elif max_rain_prob >= 30:
+        suggestions.append("接下来几小时可能有雨，外出建议带伞，阳台衣物最好提前收一下。")
+    else:
+        suggestions.append("短时间内降雨风险不高，可以正常安排室内外活动。")
+
+    if min_temp is not None and min_temp <= 10:
+        suggestions.append("气温偏低，提醒老人加衣保暖。")
+    if max_temp is not None and max_temp >= 30:
+        suggestions.append("气温偏高，注意补水，避免长时间户外活动。")
+    if max_wind >= 30:
+        suggestions.append("风比较大，外出要注意安全，阳台轻物需要固定。")
+
+    temp_text = "未知"
+    if min_temp is not None and max_temp is not None:
+        temp_text = f"{min_temp:.0f}-{max_temp:.0f}℃"
+
+    return (
+        f"{location_name} 当前天气：{_weather_code_text(current_code)}。\n"
+        f"未来 {window} 小时气温约 {temp_text}，最高降雨概率 {max_rain_prob:.0f}%，"
+        f"累计降水约 {total_precip:.1f}mm，最大风速约 {max_wind:.0f}km/h。\n"
+        f"建议：{' '.join(suggestions)}"
     )
 
 
@@ -225,6 +306,63 @@ def query_robot_state(_: str = "") -> str:
     Query the robot server mode, active task, target, navigation flag, and last error.
     """
     return _call_robot_query_state()
+
+
+@tool
+def get_weather_advice(location: str) -> str:
+    """
+    Query current and near-term weather for a location, then give caregiving advice.
+
+    Input should be a city or district name, for example:
+    Beijing
+    Shanghai
+    Hangzhou
+    """
+    query = location.strip() or "Beijing"
+    try:
+        geo_response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": query, "count": 1, "language": "zh", "format": "json"},
+            timeout=8,
+        )
+        geo_response.raise_for_status()
+        results = geo_response.json().get("results", [])
+        if not results:
+            return f"没有找到地点：{query}。请换一个城市或区县名称。"
+
+        place = results[0]
+        latitude = place["latitude"]
+        longitude = place["longitude"]
+        location_name = place.get("name", query)
+        admin = place.get("admin1")
+        country = place.get("country")
+        if admin and admin != location_name:
+            location_name = f"{admin}{location_name}"
+        if country:
+            location_name = f"{country}{location_name}"
+
+        forecast_response = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "hourly": [
+                    "temperature_2m",
+                    "precipitation_probability",
+                    "precipitation",
+                    "weather_code",
+                    "wind_speed_10m",
+                ],
+                "forecast_days": 1,
+                "timezone": "auto",
+            },
+            timeout=8,
+        )
+        forecast_response.raise_for_status()
+        hourly = forecast_response.json().get("hourly", {})
+        return _weather_advice(hourly, location_name)
+    except requests.RequestException as exc:
+        return f"天气查询失败：{exc}"
 
 
 @tool
@@ -420,6 +558,9 @@ DEFAULT_TOOLS = [
     start_wakeup_task,
     navigate_to_named_place,
     speak_text,
+    start_following_task,
+    start_inspection_task,
+    get_weather_advice,
     cancel_current_task,
     query_robot_state,
 ]
