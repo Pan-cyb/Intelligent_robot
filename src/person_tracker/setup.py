@@ -17,6 +17,7 @@ setup(
     ],
     scripts=[
         'scripts/person_tracker_node.py',
+        'scripts/person_tracker_bpu_node.py',
     ],
     install_requires=['setuptools'],
     zip_safe=True,

@@ -26,6 +26,9 @@ def generate_launch_description():
     task_command_topic = LaunchConfiguration("task_command_topic")
     enable_camera = LaunchConfiguration("enable_camera")
     enable_person_tracker = LaunchConfiguration("enable_person_tracker")
+    vision_backend = LaunchConfiguration("vision_backend")
+    enable_bpu_vision = LaunchConfiguration("enable_bpu_vision")
+    bpu_yolo_model_path = LaunchConfiguration("bpu_yolo_model_path")
     enable_follower_controller = LaunchConfiguration("enable_follower_controller")
     use_rviz = LaunchConfiguration("use_rviz")
     debug_window = LaunchConfiguration("debug_window")
@@ -56,6 +59,9 @@ def generate_launch_description():
             DeclareLaunchArgument("task_command_topic", default_value="/task_command"),
             DeclareLaunchArgument("enable_camera", default_value="false"),
             DeclareLaunchArgument("enable_person_tracker", default_value="true"),
+            DeclareLaunchArgument("vision_backend", default_value="mediapipe"),
+            DeclareLaunchArgument("enable_bpu_vision", default_value="false"),
+            DeclareLaunchArgument("bpu_yolo_model_path", default_value=""),
             DeclareLaunchArgument("enable_follower_controller", default_value="true"),
             DeclareLaunchArgument("use_rviz", default_value="false"),
             DeclareLaunchArgument("debug_window", default_value="false"),
@@ -85,6 +91,8 @@ def generate_launch_description():
                         enable_camera,
                         "' == 'true' or '",
                         enable_person_tracker,
+                        "' == 'true' or '",
+                        enable_bpu_vision,
                         "' == 'true'",
                     ])
                 ),
@@ -94,7 +102,15 @@ def generate_launch_description():
                 executable="static_transform_publisher",
                 name="base_to_camera",
                 arguments=["0.1", "0", "0.2", "0", "-0.35", "0", "base_link", "camera_link"],
-                condition=IfCondition(enable_person_tracker),
+                condition=IfCondition(
+                    PythonExpression([
+                        "'",
+                        enable_person_tracker,
+                        "' == 'true' or '",
+                        enable_bpu_vision,
+                        "' == 'true'",
+                    ])
+                ),
             ),
             Node(
                 package="person_tracker",
@@ -110,7 +126,53 @@ def generate_launch_description():
                         "debug_window": debug_window,
                     }
                 ],
-                condition=IfCondition(enable_person_tracker),
+                condition=IfCondition(
+                    PythonExpression([
+                        "'",
+                        enable_person_tracker,
+                        "' == 'true' and '",
+                        vision_backend,
+                        "' == 'mediapipe'",
+                    ])
+                ),
+            ),
+            Node(
+                package="person_tracker",
+                executable="person_tracker_bpu_node.py",
+                name="person_tracker_bpu",
+                output="screen",
+                parameters=[
+                    {
+                        "vision_backend": vision_backend,
+                        "depth_scale": 0.001,
+                        "depth_window_size": 11,
+                        "min_depth_m": 0.3,
+                        "max_depth_m": 5.0,
+                        "inference_every_n_frames": 3,
+                        "max_publish_rate_hz": 10.0,
+                        "bpu_yolo_model_path": bpu_yolo_model_path,
+                        "bpu_yolo_input_width": 640,
+                        "bpu_yolo_input_height": 640,
+                        "bpu_yolo_score_threshold": 0.4,
+                        "bpu_yolo_nms_threshold": 0.45,
+                        "enable_bbox_fall_detection": False,
+                        "fall_aspect_ratio_threshold": 1.5,
+                        "fall_confirm_frames": 5,
+                    }
+                ],
+                condition=IfCondition(
+                    PythonExpression([
+                        "('",
+                        enable_person_tracker,
+                        "' == 'true' or '",
+                        enable_bpu_vision,
+                        "' == 'true') and ('",
+                        vision_backend,
+                        "' == 'mock' or '",
+                        vision_backend,
+                        "' == 'bpu_yolo')",
+                    ])
+                ),
             ),
             Node(
                 package="follower_controller",

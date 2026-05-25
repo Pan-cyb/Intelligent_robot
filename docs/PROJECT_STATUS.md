@@ -44,6 +44,38 @@ demo_manager
 
 为降低卡顿，最终 demo 当前不再自动触发 inspection 巡航；`inspection` 单任务能力仍保留在 `task_manager`，可通过 `/robot_server/start_task` 手动触发。
 
+2026-05-25 新增第一阶段轻量视觉后端，目标是在不大改 `task_manager` 和
+`follower_controller` 的前提下，先跑通 YOLO/BPU 可替换的人体 bbox + 深度定位链路：
+
+```text
+src/person_tracker/scripts/person_tracker_bpu_node.py
+  - 保留旧 /person_position、/person_distance、/fall_detected topic。
+  - 新增 PersonDetector / PersonDetection 抽象。
+  - 支持 mock detector，便于无 BPU 模型时验证 ROS 链路。
+  - bpu_yolo detector 已接 D-Robotics hobot_dnn.pyeasy_dnn 加载、推理和常见 YOLOv8 输出后处理。
+  - 使用 bbox 中心/下半身窗口 median depth，过滤无效深度。
+  - 将 optical frame 转为 camera_link body frame：x 前、y 左、z 上。
+  - 支持 inference_every_n_frames、max_publish_rate_hz 和 2 秒摘要日志。
+```
+
+整机 launch 新增视觉后端参数：
+
+```bash
+ros2 launch task_manager robot_server.launch.py vision_backend:=mediapipe
+ros2 launch task_manager robot_server.launch.py vision_backend:=mock
+ros2 launch task_manager robot_server.launch.py vision_backend:=bpu_yolo bpu_yolo_model_path:=/path/to/yolov8_person.bin
+```
+
+默认仍是 `vision_backend:=mediapipe`，旧 MediaPipe 节点保留为 fallback。
+`mock`/`bpu_yolo` 会启动新 `person_tracker_bpu_node.py`，输出 topic 与旧节点兼容。
+`bpu_yolo` 需要在 RDK X5 上安装/启用 `hobot_dnn`，并提供 D-Robotics 转换后的 `.bin` 模型；不同 Model Zoo 模型如果输出 head 不同，只需调整 `BpuYoloPersonDetector`。
+注意：当前开发环境不是最终 RDK X5 实机运行环境，仓库内也没有真实 BPU 模型；因此 `bpu_yolo` 属于按 D-Robotics 常见接口和 YOLOv8 常见输出格式写出的离线实现，只通过了 Python 语法和 ROS 包构建验证，尚未完成真实 BPU 推理验收。
+说明文档见：
+
+```text
+src/person_tracker/doc/bpu_person_tracker.md
+```
+
 轻量启动：
 
 ```bash
