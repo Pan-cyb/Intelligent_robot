@@ -1,5 +1,6 @@
 import base64
 from collections import deque
+import hashlib
 import audioop
 import subprocess
 import tempfile
@@ -10,7 +11,18 @@ from pathlib import Path
 from openai import OpenAI
 import requests
 
-from rosa_agent.config import ASRConfig, TTSConfig, asr_config, tts_config
+from rosa_agent.config import ASRConfig, RUNTIME_DIR, TTSConfig, asr_config, tts_config
+
+
+CACHEABLE_TTS_TEXTS = {
+    "我在。",
+    "好的。",
+    "正在执行。",
+    "已停止。",
+    "没有听清楚。",
+    "检测到异常，您是否需要帮助？",
+}
+TTS_CACHE_DIR = RUNTIME_DIR / "tts_cache"
 
 
 def _record_raw_command(config: ASRConfig) -> list[str]:
@@ -274,6 +286,36 @@ def transcribe(path: Path, config: ASRConfig | None = None) -> str:
     return completion.choices[0].message.content
 
 
+def _tts_cache_path(text: str, config: TTSConfig) -> Path:
+    key = "|".join([text, config.model, config.voice, config.audio_format])
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+    return TTS_CACHE_DIR / f"{digest}.{config.audio_format}"
+
+
+def _tts_play_command(audio_path: Path, config: TTSConfig) -> list[str]:
+    command = [config.player, str(audio_path)]
+    if config.player == "aplay" and config.audio_output_device:
+        command = [config.player, "-D", config.audio_output_device, str(audio_path)]
+    return command
+
+
+def _play_audio_file(audio_path: Path, config: TTSConfig) -> bool:
+    command = _tts_play_command(audio_path, config)
+    try:
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+    except FileNotFoundError:
+        print(f"\n未找到播放器：{config.player}。可设置 TTS_PLAYER=aplay 或安装 {config.player}。")
+        return False
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        print(f"\nTTS 播放命令失败，退出码 {result.returncode}：{' '.join(command)}")
+        if stderr:
+            print(f"stderr:\n{stderr}")
+        return False
+    return True
+
+
 def speak(text: str, config: TTSConfig | None = None) -> None:
     config = config or tts_config()
     if not config.enabled or not text.strip():
@@ -281,6 +323,15 @@ def speak(text: str, config: TTSConfig | None = None) -> None:
     if not config.api_key or not config.base_url or not config.model:
         print("\nTTS 未配置：请填写 TTS_API_KEY、TTS_BASE_URL、TTS_MODEL，或设置 TTS_ENABLED=0。")
         return
+
+    normalized_text = text.strip()
+    cache_path = _tts_cache_path(normalized_text, config)
+    use_cache = normalized_text in CACHEABLE_TTS_TEXTS
+    if use_cache and cache_path.exists():
+        if _play_audio_file(cache_path, config):
+            print(f"TTS 缓存命中：{cache_path}")
+            return
+        print("TTS 缓存播放失败，回退网络 TTS。")
 
     audio_path = None
     try:
@@ -309,19 +360,17 @@ def speak(text: str, config: TTSConfig | None = None) -> None:
         response.raise_for_status()
         audio_base64 = response.json()["choices"][0]["message"]["audio"]["data"]
         audio_bytes = base64.b64decode(audio_base64)
-        audio_path = Path(
-            tempfile.NamedTemporaryFile(suffix=f".{config.audio_format}", delete=False).name
-        )
-        audio_path.write_bytes(audio_bytes)
-        command = [config.player, str(audio_path)]
-        if config.player == "aplay" and config.audio_output_device:
-            command = [config.player, "-D", config.audio_output_device, str(audio_path)]
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            print(f"\nTTS 播放命令失败，退出码 {result.returncode}：{' '.join(command)}")
-            if stderr:
-                print(f"stderr:\n{stderr}")
+        if use_cache:
+            TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(audio_bytes)
+            audio_path = cache_path
+            print(f"TTS 缓存写入：{cache_path}")
+        else:
+            audio_path = Path(
+                tempfile.NamedTemporaryFile(suffix=f".{config.audio_format}", delete=False).name
+            )
+            audio_path.write_bytes(audio_bytes)
+        _play_audio_file(audio_path, config)
     except FileNotFoundError:
         print(f"\n未找到播放器：{config.player}。可设置 TTS_PLAYER=aplay 或安装 {config.player}。")
     except requests.RequestException as exc:
@@ -329,7 +378,7 @@ def speak(text: str, config: TTSConfig | None = None) -> None:
     except (KeyError, IndexError, ValueError) as exc:
         print(f"\nTTS 响应解析失败：{exc}")
     finally:
-        if audio_path is not None:
+        if audio_path is not None and not (use_cache and audio_path == cache_path):
             try:
                 audio_path.unlink(missing_ok=True)
             except OSError as exc:
