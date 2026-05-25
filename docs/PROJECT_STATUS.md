@@ -19,6 +19,35 @@ ROSA / 命令端发高层任务
 
 ROSA 默认 action tools 现在只暴露高层任务工具，不直接调用 Nav2、`/cmd_vel` 或底层动作序列。
 
+2026-05-25 开始优化视觉跟随执行方式：
+
+```text
+follower_controller 新增 cmd_vel 后端：
+  /person_position + /person_distance
+    -> follower_cmd_vel_controller
+    -> /cmd_vel_follow
+
+Nav2 速度输出：
+  controller_server
+    -> /cmd_vel_nav_raw
+    -> nav2_velocity_smoother
+    -> /cmd_vel_nav
+
+velocity_mux:
+  FOLLOWING 时使用 /cmd_vel_follow
+  其他模式默认使用 /cmd_vel_nav
+  最终只由 velocity_mux 输出 /cmd_vel
+```
+
+主线服务端新增跟随后端参数：
+
+```bash
+ros2 launch task_manager robot_server.launch.py follow_backend:=nav2
+ros2 launch task_manager robot_server.launch.py follow_backend:=cmd_vel
+```
+
+当前默认仍为 `nav2`，用于保守回退；测试实时跟随时使用 `follow_backend:=cmd_vel`。
+
 2026-05-24 最终综合 demo 已调整为轻量 VSCode 终端启动方案：
 
 ```text

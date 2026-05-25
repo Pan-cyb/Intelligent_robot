@@ -27,6 +27,7 @@ def generate_launch_description():
     enable_camera = LaunchConfiguration("enable_camera")
     enable_person_tracker = LaunchConfiguration("enable_person_tracker")
     enable_follower_controller = LaunchConfiguration("enable_follower_controller")
+    follow_backend = LaunchConfiguration("follow_backend")
     use_rviz = LaunchConfiguration("use_rviz")
     debug_window = LaunchConfiguration("debug_window")
     fall_confirm_frames = LaunchConfiguration("fall_confirm_frames")
@@ -57,6 +58,7 @@ def generate_launch_description():
             DeclareLaunchArgument("enable_camera", default_value="false"),
             DeclareLaunchArgument("enable_person_tracker", default_value="true"),
             DeclareLaunchArgument("enable_follower_controller", default_value="true"),
+            DeclareLaunchArgument("follow_backend", default_value="nav2"),
             DeclareLaunchArgument("use_rviz", default_value="false"),
             DeclareLaunchArgument("debug_window", default_value="false"),
             DeclareLaunchArgument("fall_confirm_frames", default_value="5"),
@@ -124,6 +126,57 @@ def generate_launch_description():
                         "goal_update_interval": 1.0,
                         "lost_timeout": 5.0,
                         "camera_pitch": -0.35,
+                    }
+                ],
+                condition=IfCondition(
+                    PythonExpression([
+                        "'",
+                        enable_follower_controller,
+                        "' == 'true' and '",
+                        follow_backend,
+                        "' == 'nav2'",
+                    ])
+                ),
+            ),
+            Node(
+                package="follower_controller",
+                executable="follower_cmd_vel_controller.py",
+                name="follower_cmd_vel_controller",
+                output="screen",
+                parameters=[
+                    {
+                        "follow_distance": 1.2,
+                        "min_safe_distance": 0.6,
+                        "max_linear_speed": 0.25,
+                        "max_angular_speed": 0.6,
+                        "linear_kp": 0.5,
+                        "angular_kp": 1.2,
+                        "distance_deadband": 0.15,
+                        "angle_deadband": 0.08,
+                        "lost_timeout": 1.0,
+                        "control_rate_hz": 10.0,
+                    }
+                ],
+                condition=IfCondition(
+                    PythonExpression([
+                        "'",
+                        enable_follower_controller,
+                        "' == 'true' and '",
+                        follow_backend,
+                        "' == 'cmd_vel'",
+                    ])
+                ),
+            ),
+            Node(
+                package="follower_controller",
+                executable="velocity_mux.py",
+                name="velocity_mux",
+                output="screen",
+                parameters=[
+                    {
+                        "source_timeout": 0.5,
+                        "max_linear_speed": 0.4,
+                        "max_angular_speed": 1.0,
                     }
                 ],
                 condition=IfCondition(enable_follower_controller),

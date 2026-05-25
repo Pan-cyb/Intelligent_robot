@@ -57,7 +57,7 @@ def generate_launch_description():
             'nav2_controller',
             'controller_server',
             'controller_server',
-            remappings=[('cmd_vel', 'cmd_vel_nav')]
+            remappings=[('cmd_vel', 'cmd_vel_nav_raw')]
         ),
         nav2_node('nav2_behaviors', 'behavior_server', 'behavior_server'),
         nav2_node('nav2_bt_navigator', 'bt_navigator', 'bt_navigator'),
@@ -68,8 +68,8 @@ def generate_launch_description():
             output='screen',
             parameters=[params_file, common],
             remappings=[
-                ('cmd_vel', 'cmd_vel_nav'),
-                ('cmd_vel_smoothed', 'cmd_vel')
+                ('cmd_vel', 'cmd_vel_nav_raw'),
+                ('cmd_vel_smoothed', 'cmd_vel_nav')
             ]
         ),
         Node(
