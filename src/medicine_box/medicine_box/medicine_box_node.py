@@ -62,10 +62,26 @@ class ServoPwmDriver:
             return
 
         self._gpio = GPIO
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(self._pin, GPIO.OUT)
-        self._pwm = GPIO.PWM(self._pin, self._frequency_hz)
-        self._pwm.start(0.0)
+        try:
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.BOARD)
+            self._pwm = GPIO.PWM(self._pin, self._frequency_hz)
+            self._pwm.ChangeDutyCycle(0.0)
+            self._pwm.start(0.0)
+        except Exception as exc:
+            self._pwm = None
+            self._dry_run = True
+            try:
+                GPIO.cleanup()
+            except Exception:
+                pass
+            self._gpio = None
+            self._logger.error(
+                "Failed to start PWM on board pin "
+                f"{self._pin}; falling back to dry-run mode: {exc}"
+            )
+            return
+
         self._logger.info(
             f"Started PWM on board pin {self._pin} at {self._frequency_hz:.1f} Hz."
         )

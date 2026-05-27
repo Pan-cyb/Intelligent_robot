@@ -29,8 +29,15 @@ src/medicine_box/
 本包参考 RDK X5 官方 PWM 示例，底层使用：
 
 ```python
+GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BOARD)
 Hobot.GPIO.PWM(pin, frequency)
 ```
+
+注意：RDK 官方 PWM 示例没有在创建 `GPIO.PWM(...)` 前调用
+`GPIO.setup(pin, GPIO.OUT)`。对 `Hobot.GPIO` 来说，PWM 引脚应直接创建
+`GPIO.PWM`，否则可能先按普通 GPIO 占用该通道，再申请 PWM 时出现
+`This channel is in use`。
 
 运行实机前需要确认：
 
@@ -235,4 +242,35 @@ max_angle
 2. 检查 pwm_pin 是否和接线一致
 3. 检查舵机供电和共地
 4. 检查是否误用了 dry_run:=true
+```
+
+如果日志提示 `This channel is in use`：
+
+```text
+说明当前 pwm_pin 对应的 PWM 通道已经被占用，常见原因是：
+
+1. 代码在 GPIO.PWM(...) 前错误调用了 GPIO.setup(pin, GPIO.OUT)
+2. 已经有一个 medicine_box_node 或其它 PWM 测试程序在运行
+3. 上一次 PWM 程序异常退出，Hobot.GPIO 没有及时释放通道
+4. 该引脚对应的 PWM 功能被其它进程占用
+```
+
+建议处理：
+
+```bash
+ros2 node list
+ps -ef | grep medicine_box
+ps -ef | grep python
+```
+
+如果确认有旧进程，先停止旧进程后再启动。必要时重启系统释放 PWM 状态：
+
+```bash
+sudo reboot
+```
+
+也可以先换一个已经启用 PWM 的 40pin 引脚测试：
+
+```bash
+ros2 launch medicine_box medicine_box.launch.py pwm_pin:=<其它PWM引脚>
 ```
