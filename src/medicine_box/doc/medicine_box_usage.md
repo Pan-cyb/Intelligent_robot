@@ -14,6 +14,8 @@ slot 2 -> 180 度
 slot 3 -> 270 度
 ```
 
+当前按 360 度电机/舵机预留映射，目标角度范围为 0-360 度。
+
 ## 包结构
 
 ```text
@@ -31,13 +33,18 @@ src/medicine_box/
 ```python
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BOARD)
-Hobot.GPIO.PWM(pin, frequency)
+p = Hobot.GPIO.PWM(pin, 50)
+p.ChangeDutyCycle(initial_duty)
+p.start(initial_duty)
 ```
 
 注意：RDK 官方 PWM 示例没有在创建 `GPIO.PWM(...)` 前调用
 `GPIO.setup(pin, GPIO.OUT)`。对 `Hobot.GPIO` 来说，PWM 引脚应直接创建
 `GPIO.PWM`，否则可能先按普通 GPIO 占用该通道，再申请 PWM 时出现
 `This channel is in use`。
+
+另一个关键点是初始化顺序必须先 `ChangeDutyCycle(initial_duty)`，再
+`start(initial_duty)`。不要先 `start(...)` 后 `ChangeDutyCycle(...)`。
 
 运行实机前需要确认：
 
@@ -52,18 +59,19 @@ Hobot.GPIO.PWM(pin, frequency)
 
 ```text
 pwm_pin=33
-pwm_frequency_hz=50.0
 min_angle=0.0
-max_angle=270.0
-min_pulse_ms=0.5
-max_pulse_ms=2.5
+max_angle=360.0
+initial_angle=0.0
+move_step_delay=0.03
 hold_sec=0.8
 ```
 
-如果你的舵机是 180 度舵机，建议启动时改成：
+舵机频率固定为 50Hz，占空比映射固定为：
 
-```bash
-ros2 launch medicine_box medicine_box.launch.py max_angle:=180.0
+```text
+0 度   -> 5.0%
+360 度 -> 10.0%
+duty = 5.0 + angle / 360.0 * 5.0
 ```
 
 ## 药物绑定配置
@@ -211,13 +219,10 @@ ros2 service call /medicine_box/dispense task_manager_interfaces/srv/DispenseMed
 ros2 service call /medicine_box/dispense task_manager_interfaces/srv/DispenseMedicine "{medicine_name: '维生素D'}"
 ```
 
-如果方向反了，可以先调整药物的 `slot` 绑定；如果角度不准，再调整：
+如果方向反了，可以先调整药物的 `slot` 绑定；如果舵机移动太快或太慢，再调整：
 
 ```text
-min_pulse_ms
-max_pulse_ms
-min_angle
-max_angle
+move_step_delay
 ```
 
 ## 常见问题

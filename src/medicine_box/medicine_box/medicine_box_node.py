@@ -28,24 +28,24 @@ class ServoPwmDriver:
         self,
         *,
         pin: int,
-        frequency_hz: float,
         min_angle: float,
         max_angle: float,
-        min_pulse_ms: float,
-        max_pulse_ms: float,
+        initial_angle: float,
+        move_step_delay: float,
         dry_run: bool,
         logger,
     ) -> None:
         self._pin = pin
-        self._frequency_hz = frequency_hz
+        self._frequency_hz = 50.0
         self._min_angle = min_angle
         self._max_angle = max_angle
-        self._min_pulse_ms = min_pulse_ms
-        self._max_pulse_ms = max_pulse_ms
+        self._initial_angle = initial_angle
+        self._move_step_delay = move_step_delay
         self._dry_run = dry_run
         self._logger = logger
         self._pwm = None
         self._gpio = None
+        self._current_angle = max(self._min_angle, min(self._max_angle, initial_angle))
 
     def start(self) -> None:
         if self._dry_run:
@@ -65,9 +65,10 @@ class ServoPwmDriver:
         try:
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.BOARD)
+            initial_duty = self._angle_to_duty_cycle(self._current_angle)
             self._pwm = GPIO.PWM(self._pin, self._frequency_hz)
-            self._pwm.ChangeDutyCycle(0.0)
-            self._pwm.start(0.0)
+            self._pwm.ChangeDutyCycle(initial_duty)
+            self._pwm.start(initial_duty)
         except Exception as exc:
             self._pwm = None
             self._dry_run = True
@@ -88,6 +89,7 @@ class ServoPwmDriver:
 
     def stop(self) -> None:
         if self._pwm is not None:
+            self._pwm.ChangeDutyCycle(0.0)
             self._pwm.stop()
             self._pwm = None
         if self._gpio is not None:
@@ -107,20 +109,34 @@ class ServoPwmDriver:
         if self._pwm is None:
             raise RuntimeError("PWM driver has not been started.")
 
-        self._pwm.ChangeDutyCycle(duty_cycle)
+        for step_angle in self._iter_step_angles(self._current_angle, clamped):
+            self._pwm.ChangeDutyCycle(self._angle_to_duty_cycle(step_angle))
+            time.sleep(max(0.0, self._move_step_delay))
+
+        self._current_angle = clamped
         time.sleep(max(0.0, hold_sec))
         self._pwm.ChangeDutyCycle(0.0)
         return clamped
 
     def _angle_to_duty_cycle(self, angle: float) -> float:
-        angle_span = self._max_angle - self._min_angle
-        if angle_span <= 0.0:
-            raise ValueError("max_angle must be greater than min_angle.")
+        servo_angle = max(0.0, min(360.0, angle))
+        return 5.0 + servo_angle / 360.0 * 5.0
 
-        ratio = (angle - self._min_angle) / angle_span
-        pulse_ms = self._min_pulse_ms + ratio * (self._max_pulse_ms - self._min_pulse_ms)
-        period_ms = 1000.0 / self._frequency_hz
-        return pulse_ms / period_ms * 100.0
+    @staticmethod
+    def _iter_step_angles(start: float, target: float):
+        if abs(target - start) < 1.0:
+            yield target
+            return
+
+        direction = 1.0 if target > start else -1.0
+        current = start
+        while abs(target - current) >= 1.0:
+            current += direction
+            if (direction > 0.0 and current > target) or (
+                direction < 0.0 and current < target
+            ):
+                current = target
+            yield current
 
 
 class MedicineBoxNode(Node):
@@ -132,9 +148,11 @@ class MedicineBoxNode(Node):
         self.declare_parameter("pwm_frequency_hz", 50.0)
         self.declare_parameter("dry_run", False)
         self.declare_parameter("min_angle", 0.0)
-        self.declare_parameter("max_angle", 270.0)
+        self.declare_parameter("max_angle", 360.0)
         self.declare_parameter("min_pulse_ms", 0.5)
         self.declare_parameter("max_pulse_ms", 2.5)
+        self.declare_parameter("initial_angle", 0.0)
+        self.declare_parameter("move_step_delay", 0.03)
         self.declare_parameter("hold_sec", 0.8)
 
         self._hold_sec = float(self.get_parameter("hold_sec").value)
@@ -142,11 +160,10 @@ class MedicineBoxNode(Node):
         self._alias_index = self._build_alias_index(self._bindings)
         self._driver = ServoPwmDriver(
             pin=int(self.get_parameter("pwm_pin").value),
-            frequency_hz=float(self.get_parameter("pwm_frequency_hz").value),
             min_angle=float(self.get_parameter("min_angle").value),
             max_angle=float(self.get_parameter("max_angle").value),
-            min_pulse_ms=float(self.get_parameter("min_pulse_ms").value),
-            max_pulse_ms=float(self.get_parameter("max_pulse_ms").value),
+            initial_angle=float(self.get_parameter("initial_angle").value),
+            move_step_delay=float(self.get_parameter("move_step_delay").value),
             dry_run=bool(self.get_parameter("dry_run").value),
             logger=self.get_logger(),
         )
