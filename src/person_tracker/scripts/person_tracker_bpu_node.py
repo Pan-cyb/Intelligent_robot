@@ -27,6 +27,7 @@ class PersonDetection:
     score: float
     class_id: int = 0
     label: str = "person"
+    keypoints: object = None
 
     @property
     def area(self):
@@ -183,6 +184,265 @@ class BpuYoloPersonDetector(PersonDetector):
         return detections
 
 
+class BpuYoloPosePersonDetector(PersonDetector):
+    """RDK X5 YOLOPose detector using the model_zoo hbm_runtime protocol.
+
+    D-Robotics' Ultralytics YOLOPose .bin models expose 9 outputs:
+    [cls, box, keypoints] for strides 8, 16, and 32. This detector decodes the
+    pose model to person bboxes first so the existing depth localization and
+    follower pipeline can stay unchanged.
+    """
+
+    def __init__(
+        self,
+        logger,
+        model_path,
+        score_threshold=0.25,
+        nms_threshold=0.70,
+        reg=16,
+        nkpt=17,
+        strides=(8, 16, 32),
+        resize_type=1,
+        priority=0,
+        bpu_cores=None,
+    ):
+        self.logger = logger
+        self.model_path = model_path
+        self.score_threshold = float(score_threshold)
+        self.nms_threshold = float(nms_threshold)
+        self.reg = int(reg)
+        self.nkpt = int(nkpt)
+        self.strides = [int(v) for v in strides]
+        self.resize_type = int(resize_type)
+        self.priority = int(priority)
+        self.bpu_cores = [0] if bpu_cores is None else list(bpu_cores)
+        self.conf_threshold_raw = -math.log(1.0 / self.score_threshold - 1.0)
+        self.weights_static = np.arange(self.reg, dtype=np.float32)[None, None, :]
+        self.model = self._load_model()
+        self.model_name = self.model.model_names[0]
+        self.input_names = self.model.input_names[self.model_name]
+        self.output_names = self.model.output_names[self.model_name]
+        input_shape = self.model.input_shapes[self.model_name][self.input_names[0]]
+        if input_shape[1] == 3:
+            self.input_height = int(input_shape[2])
+            self.input_width = int(input_shape[3])
+        else:
+            self.input_height = int(input_shape[1])
+            self.input_width = int(input_shape[2])
+        self._set_scheduling_params()
+        self.logger.info(
+            f"Loaded BPU YOLOPose model: {self.model_path}, "
+            f"input={self.input_width}x{self.input_height}, outputs={len(self.output_names)}"
+        )
+
+    def _load_model(self):
+        if not self.model_path:
+            raise RuntimeError("bpu_yolo_model_path is empty")
+        try:
+            import hbm_runtime
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to import hbm_runtime. Install/enable the D-Robotics "
+                "RDK X5 runtime before using vision_backend:=bpu_yolopose."
+            ) from exc
+        return hbm_runtime.HB_HBMRuntime(self.model_path)
+
+    def _set_scheduling_params(self):
+        try:
+            self.model.set_scheduling_params(
+                priority={self.model_name: self.priority},
+                bpu_cores={self.model_name: self.bpu_cores},
+            )
+        except Exception as exc:
+            self.logger.warn(f"Failed to set BPU scheduling params: {exc}")
+
+    def detect(self, image):
+        input_tensor = self._preprocess(image)
+        outputs = self.model.run(input_tensor)
+        boxes, scores, keypoints = self._postprocess(outputs, image.shape[1], image.shape[0])
+        detections = []
+        for box, score, kpts in zip(boxes, scores, keypoints):
+            x1, y1, x2, y2 = [int(v) for v in box]
+            if x2 <= x1 or y2 <= y1:
+                continue
+            detections.append(
+                PersonDetection((x1, y1, x2, y2), float(score), 0, "person", kpts)
+            )
+        return detections
+
+    def _preprocess(self, image):
+        resized = self._resize_image(image, self.input_width, self.input_height, self.resize_type)
+        y, uv = self._bgr_to_nv12_planes(resized)
+        packed_nv12 = np.concatenate([y.reshape(-1), uv.reshape(-1)]).astype(np.uint8)
+        return {self.model_name: {self.input_names[0]: packed_nv12}}
+
+    def _postprocess(self, outputs, image_w, image_h):
+        raw_outputs = outputs[self.model_name]
+        boxes_all = []
+        scores_all = []
+        kpts_xy_all = []
+        kpts_score_all = []
+
+        for level_index, stride in enumerate(self.strides):
+            base_idx = level_index * 3
+            cls_output = raw_outputs[self.output_names[base_idx]].reshape(-1, 1)
+            box_output = raw_outputs[self.output_names[base_idx + 1]]
+            kpt_output = raw_outputs[self.output_names[base_idx + 2]]
+
+            scores, valid_indices = self._filter_pose_scores(cls_output)
+            if valid_indices.size == 0:
+                continue
+
+            grid_size = self.input_height // stride
+            boxes = self._decode_boxes(box_output, valid_indices, grid_size, stride)
+            anchor = self._gen_anchor(grid_size)[valid_indices]
+            kpts_xy, kpts_score = self._decode_keypoints(
+                kpt_output, valid_indices, stride, anchor
+            )
+
+            boxes_all.append(boxes)
+            scores_all.append(scores)
+            kpts_xy_all.append(kpts_xy)
+            kpts_score_all.append(self._sigmoid(kpts_score))
+
+        if not boxes_all:
+            return (
+                np.empty((0, 4), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0, self.nkpt, 3), dtype=np.float32),
+            )
+
+        boxes = np.concatenate(boxes_all, axis=0).astype(np.float32)
+        scores = np.concatenate(scores_all, axis=0).astype(np.float32)
+        kpts_xy = np.concatenate(kpts_xy_all, axis=0).astype(np.float32)
+        kpts_score = np.concatenate(kpts_score_all, axis=0).astype(np.float32)
+        keep = self._nms(boxes, scores, self.nms_threshold)
+
+        if not keep:
+            return (
+                np.empty((0, 4), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0, self.nkpt, 3), dtype=np.float32),
+            )
+
+        boxes = self._scale_boxes_back(boxes[keep], image_w, image_h)
+        kpts_xy = self._scale_keypoints_back(kpts_xy[keep], image_w, image_h)
+        kpts = np.concatenate([kpts_xy, kpts_score[keep]], axis=-1)
+        return boxes, scores[keep], kpts
+
+    def _resize_image(self, image, input_w, input_h, resize_type):
+        image_h, image_w = image.shape[:2]
+        if resize_type == 0:
+            return cv2.resize(image, (input_w, input_h), interpolation=cv2.INTER_NEAREST)
+        scale = min(input_h / image_h, input_w / image_w)
+        new_w = int(image_w * scale)
+        new_h = int(image_h * scale)
+        resized = cv2.resize(image, (new_w, new_h))
+        pad_w = input_w - new_w
+        pad_h = input_h - new_h
+        left, right = pad_w // 2, pad_w - pad_w // 2
+        top, bottom = pad_h // 2, pad_h - pad_h // 2
+        return cv2.copyMakeBorder(
+            resized,
+            top,
+            bottom,
+            left,
+            right,
+            borderType=cv2.BORDER_CONSTANT,
+            value=(127, 127, 127),
+        )
+
+    def _bgr_to_nv12_planes(self, image):
+        height, width = image.shape[:2]
+        area = height * width
+        yuv420p = cv2.cvtColor(image, cv2.COLOR_BGR2YUV_I420).reshape((area * 3 // 2,))
+        y = yuv420p[:area].reshape((height, width))
+        u = yuv420p[area:area + area // 4].reshape((height // 2, width // 2))
+        v = yuv420p[area + area // 4:].reshape((height // 2, width // 2))
+        uv = np.stack((u, v), axis=-1)
+        return y[np.newaxis, :, :, np.newaxis], uv[np.newaxis, :, :, :]
+
+    def _filter_pose_scores(self, cls_output):
+        cls_output = cls_output.reshape(-1, cls_output.shape[-1])
+        max_scores = np.max(cls_output, axis=1)
+        valid_indices = np.flatnonzero(max_scores >= self.conf_threshold_raw)
+        return self._sigmoid(max_scores[valid_indices]), valid_indices
+
+    def _decode_boxes(self, box_output, valid_indices, grid_size, stride):
+        boxes = box_output.reshape(-1, box_output.shape[-1])[valid_indices]
+        distributions = boxes.reshape(-1, 4, self.reg)
+        ltrb = np.sum(self._softmax(distributions, axis=2) * self.weights_static, axis=2)
+        anchor = self._gen_anchor(grid_size)[valid_indices]
+        x1y1 = anchor - ltrb[:, 0:2]
+        x2y2 = anchor + ltrb[:, 2:4]
+        return np.hstack([x1y1, x2y2]) * stride
+
+    def _decode_keypoints(self, kpt_output, valid_indices, stride, anchor):
+        kpts = kpt_output.reshape(-1, kpt_output.shape[-1])[valid_indices]
+        kpts = kpts.reshape(-1, self.nkpt, 3)
+        kpts_xy = (kpts[:, :, :2] * 2.0 + (anchor[:, None, :] - 0.5)) * stride
+        return kpts_xy, kpts[:, :, 2:3]
+
+    def _gen_anchor(self, grid_size):
+        x = np.tile(np.linspace(0.5, grid_size - 0.5, grid_size), reps=grid_size)
+        y = np.repeat(np.linspace(0.5, grid_size - 0.5, grid_size), grid_size)
+        return np.stack([x, y], axis=1)
+
+    def _scale_boxes_back(self, boxes, image_w, image_h):
+        if self.resize_type == 0:
+            boxes[:, [0, 2]] *= image_w / self.input_width
+            boxes[:, [1, 3]] *= image_h / self.input_height
+        else:
+            scale = min(self.input_width / image_w, self.input_height / image_h)
+            pad_w = (self.input_width - image_w * scale) / 2
+            pad_h = (self.input_height - image_h * scale) / 2
+            boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_w) / scale
+            boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_h) / scale
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, image_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, image_h)
+        return boxes
+
+    def _scale_keypoints_back(self, keypoints, image_w, image_h):
+        scaled = keypoints.copy()
+        if self.resize_type == 0:
+            scaled[..., 0] *= image_w / self.input_width
+            scaled[..., 1] *= image_h / self.input_height
+        else:
+            scale = min(self.input_width / image_w, self.input_height / image_h)
+            pad_w = (self.input_width - image_w * scale) / 2
+            pad_h = (self.input_height - image_h * scale) / 2
+            scaled[..., 0] = (scaled[..., 0] - pad_w) / scale
+            scaled[..., 1] = (scaled[..., 1] - pad_h) / scale
+        scaled[..., 0] = np.clip(scaled[..., 0], 0, image_w)
+        scaled[..., 1] = np.clip(scaled[..., 1], 0, image_h)
+        return scaled
+
+    def _nms(self, boxes, scores, iou_threshold):
+        keep = []
+        order = scores.argsort()[::-1]
+        x1, y1, x2, y2 = boxes.T
+        area = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
+        while order.size > 0:
+            i = order[0]
+            keep.append(i)
+            xx1 = np.maximum(x1[i], x1[order[1:]])
+            yy1 = np.maximum(y1[i], y1[order[1:]])
+            xx2 = np.minimum(x2[i], x2[order[1:]])
+            yy2 = np.minimum(y2[i], y2[order[1:]])
+            inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
+            iou = inter / (area[i] + area[order[1:]] - inter + 1e-9)
+            order = order[1:][iou < iou_threshold]
+        return keep
+
+    def _sigmoid(self, value):
+        return 1.0 / (1.0 + np.exp(-value))
+
+    def _softmax(self, value, axis):
+        shifted = value - np.max(value, axis=axis, keepdims=True)
+        exp = np.exp(shifted)
+        return exp / np.sum(exp, axis=axis, keepdims=True)
+
+
 class PersonTrackerBpuNode(Node):
     """YOLO/BPU-ready person perception with depth localization."""
 
@@ -208,6 +468,11 @@ class PersonTrackerBpuNode(Node):
         self.declare_parameter("bpu_yolo_input_height", 640)
         self.declare_parameter("bpu_yolo_score_threshold", 0.4)
         self.declare_parameter("bpu_yolo_nms_threshold", 0.45)
+        self.declare_parameter("bpu_yolopose_reg", 16)
+        self.declare_parameter("bpu_yolopose_nkpt", 17)
+        self.declare_parameter("bpu_yolopose_resize_type", 1)
+        self.declare_parameter("bpu_yolopose_priority", 0)
+        self.declare_parameter("bpu_yolopose_bpu_cores", [0])
         self.declare_parameter("enable_bbox_fall_detection", False)
         self.declare_parameter("fall_aspect_ratio_threshold", 1.5)
         self.declare_parameter("fall_confirm_frames", 5)
@@ -282,6 +547,18 @@ class PersonTrackerBpuNode(Node):
                 self.get_parameter("bpu_yolo_input_height").value,
                 self.get_parameter("bpu_yolo_score_threshold").value,
                 self.get_parameter("bpu_yolo_nms_threshold").value,
+            )
+        if self.vision_backend == "bpu_yolopose":
+            return BpuYoloPosePersonDetector(
+                self.get_logger(),
+                self.get_parameter("bpu_yolo_model_path").value,
+                self.get_parameter("bpu_yolo_score_threshold").value,
+                self.get_parameter("bpu_yolo_nms_threshold").value,
+                self.get_parameter("bpu_yolopose_reg").value,
+                self.get_parameter("bpu_yolopose_nkpt").value,
+                resize_type=self.get_parameter("bpu_yolopose_resize_type").value,
+                priority=self.get_parameter("bpu_yolopose_priority").value,
+                bpu_cores=self.get_parameter("bpu_yolopose_bpu_cores").value,
             )
         self.get_logger().warn(
             f"Unsupported backend '{self.vision_backend}', falling back to mock detector"
