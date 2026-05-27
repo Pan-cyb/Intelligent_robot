@@ -20,6 +20,7 @@ Nav2 移动
 base_controller  底盘、地图、Nav2、RViz、命名点标定
 rosa_agent       文字/语音交互、ASR、LLM、TTS
 task_manager     任务状态机和任务执行编排
+medicine_box     药盒舵机控制、药物绑定和取药服务
 ldlidar_ros2     雷达驱动
 ```
 
@@ -53,6 +54,10 @@ follower_controller:
 
 task_manager:
   负责机器人任务状态机、任务准入、导航调用、超时、重试、取消、故障处理。
+
+medicine_box:
+  负责药物名称/别名到药格的绑定，以及药盒舵机 PWM 控制。
+  对外提供 /medicine_box/dispense 服务，不直接控制 Nav2、底盘或 task_manager 状态机。
 
 waypoint_manager:
   负责 RViz 命名点标定、保存和读取命名点。

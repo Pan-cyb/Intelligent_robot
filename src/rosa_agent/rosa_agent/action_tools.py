@@ -87,6 +87,19 @@ def _call_robot_query_state() -> str:
     )
 
 
+def _call_medicine_box_dispense(medicine_name: str) -> str:
+    yaml_text = "{" f"medicine_name: {shlex.quote(medicine_name)}" "}"
+    return run_ros2_command.invoke(
+        {
+            "command": (
+                "ros2 service call /medicine_box/dispense "
+                "task_manager_interfaces/srv/DispenseMedicine "
+                f"{shlex.quote(yaml_text)}"
+            )
+        }
+    )
+
+
 def _weather_code_text(code: int) -> str:
     weather_codes = {
         0: "晴",
@@ -366,6 +379,20 @@ def get_weather_advice(location: str) -> str:
 
 
 @tool
+def dispense_medicine(medicine_name: str) -> str:
+    """
+    Ask the medicine box node to rotate the servo to the slot bound to a medicine.
+
+    Input should be the medicine name or an alias configured in medicine_box,
+    for example: 阿司匹林, 降压药, 二甲双胍.
+    """
+    name = medicine_name.strip()
+    if not name:
+        return "请先说明需要哪一种药。"
+    return _call_medicine_box_dispense(name)
+
+
+@tool
 def launch_ros2_file(command: str) -> str:
     """
     Start a ROS2 launch command in the background.
@@ -560,6 +587,7 @@ DEFAULT_TOOLS = [
     speak_text,
     start_following_task,
     start_inspection_task,
+    dispense_medicine,
     get_weather_advice,
     cancel_current_task,
     query_robot_state,

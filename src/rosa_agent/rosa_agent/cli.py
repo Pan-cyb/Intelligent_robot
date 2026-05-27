@@ -6,6 +6,7 @@ from rosa_agent.action_tools import (
     get_weather_advice,
     navigate_to_named_place,
     query_robot_state,
+    dispense_medicine,
     speak_text,
     start_following_task,
     start_inspection_task,
@@ -84,6 +85,10 @@ ROBOT_CONTEXT_KEYWORDS = (
     "取消",
     "停止",
     "充电",
+    "药",
+    "药盒",
+    "吃药",
+    "取药",
     "天气",
     "气温",
     "下雨",
@@ -112,6 +117,36 @@ def _extract_weather_location(text: str) -> str:
         cleaned = cleaned.replace(token, "")
     cleaned = cleaned.strip(" ，,。.")
     return cleaned or DEFAULT_WEATHER_LOCATION
+
+
+def _extract_medicine_name(text: str) -> str:
+    cleaned = text.strip()
+    for token in (
+        "小智",
+        "小志",
+        "请",
+        "帮我",
+        "给我",
+        "拿",
+        "取",
+        "打开",
+        "转到",
+        "需要",
+        "我要",
+        "吃",
+        "药盒",
+        "药物",
+        "药品",
+        "药",
+        "一下",
+        "。",
+        "，",
+        ",",
+        "？",
+        "?",
+    ):
+        cleaned = cleaned.replace(token, "")
+    return cleaned.strip(" ：:，,。.")
 
 
 def _invoke_tool(tool_func, tool_input: str = "") -> str:
@@ -186,6 +221,12 @@ def route_high_level_command(text: str) -> str | None:
 
     if any(word in normalized for word in ("巡检", "找人", "找老人", "inspection")):
         return _invoke_tool(start_inspection_task)
+
+    if any(word in normalized for word in ("药", "药盒", "吃药", "取药", "拿药")):
+        medicine_name = _extract_medicine_name(text)
+        if medicine_name:
+            return _invoke_tool(dispense_medicine, medicine_name)
+        return "请告诉我需要哪一种药。"
 
     if any(word in normalized for word in ("天气", "气温", "温度", "下雨", "降雨", "雨")):
         return _invoke_tool(get_weather_advice, _extract_weather_location(text))

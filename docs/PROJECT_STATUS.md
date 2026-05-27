@@ -19,6 +19,38 @@ ROSA / 命令端发高层任务
 
 ROSA 默认 action tools 现在只暴露高层任务工具，不直接调用 Nav2、`/cmd_vel` 或底层动作序列。
 
+2026-05-27 新增药盒舵机控制包 `medicine_box`：
+
+```text
+rosa_agent
+  -> /medicine_box/dispense
+  -> medicine_box_node
+  -> 药物绑定 config/medicines.yaml
+  -> RDK X5 Hobot.GPIO PWM 控制舵机
+```
+
+每个药物药格按 90 度间隔绑定：
+
+```text
+slot 0 -> 0°
+slot 1 -> 90°
+slot 2 -> 180°
+slot 3 -> 270°
+```
+
+服务接口：
+
+```bash
+ros2 service call /medicine_box/dispense task_manager_interfaces/srv/DispenseMedicine "{medicine_name: '阿司匹林'}"
+```
+
+开发机可 dry-run，实机需确认 RDK PWM 组已启用、`pwm_pin` 与接线一致：
+
+```bash
+ros2 launch medicine_box medicine_box.launch.py dry_run:=true
+ros2 launch medicine_box medicine_box.launch.py pwm_pin:=33
+```
+
 2026-05-24 最终综合 demo 已调整为轻量 VSCode 终端启动方案：
 
 ```text
