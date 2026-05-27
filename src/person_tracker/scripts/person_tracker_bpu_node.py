@@ -462,6 +462,7 @@ class PersonTrackerBpuNode(Node):
         self.declare_parameter("hfov_deg", 73.8)
         self.declare_parameter("vfov_deg", 58.8)
         self.declare_parameter("ema_alpha", 0.35)
+        self.declare_parameter("debug_window", False)
         self.declare_parameter("mock_enable_center_bbox", True)
         self.declare_parameter("bpu_yolo_model_path", "")
         self.declare_parameter("bpu_yolo_input_width", 640)
@@ -491,6 +492,7 @@ class PersonTrackerBpuNode(Node):
         self.hfov_deg = float(self.get_parameter("hfov_deg").value)
         self.vfov_deg = float(self.get_parameter("vfov_deg").value)
         self.ema_alpha = float(self.get_parameter("ema_alpha").value)
+        self.debug_window = _as_bool(self.get_parameter("debug_window").value)
         self.enable_bbox_fall_detection = _as_bool(
             self.get_parameter("enable_bbox_fall_detection").value
         )
@@ -597,9 +599,12 @@ class PersonTrackerBpuNode(Node):
         self.last_detection_count = len(detections)
         selected = self.select_person(detections)
         self.last_selected_bbox = selected.bbox if selected else None
+        debug_depth_point = None
+        debug_depth_m = None
 
         if selected is None:
             self._publish_fall(False)
+            self.show_debug_window(image, detections, None, None, None)
             self._log_stats()
             return
 
@@ -607,10 +612,13 @@ class PersonTrackerBpuNode(Node):
         if depth_result is None:
             self.invalid_depth_count += 1
             self._publish_fall(self.update_fall_state(selected.bbox))
+            self.show_debug_window(image, detections, selected, None, None)
             self._log_stats()
             return
 
         u, v, depth_m = depth_result
+        debug_depth_point = (u, v)
+        debug_depth_m = depth_m
         x, y, z = self.pixel_to_body_3d(u, v, depth_m)
         self.update_ema(x, y, z, depth_m)
         self.publish_person(msg.header.stamp)
@@ -618,6 +626,7 @@ class PersonTrackerBpuNode(Node):
         self.valid_depth_count += 1
         self.publish_count += 1
         self.last_publish_time = time.time()
+        self.show_debug_window(image, detections, selected, debug_depth_point, debug_depth_m)
         self._log_stats()
 
     def _publish_rate_allows(self):
@@ -718,6 +727,90 @@ class PersonTrackerBpuNode(Node):
         msg.data = bool(is_fallen)
         self.fall_pub.publish(msg)
 
+    def show_debug_window(self, image, detections, selected, depth_point, depth_m):
+        if not self.debug_window:
+            return
+
+        display = image.copy()
+        for detection in detections:
+            x1, y1, x2, y2 = [int(v) for v in detection.bbox]
+            is_selected = detection is selected
+            color = (0, 255, 0) if is_selected else (128, 128, 128)
+            thickness = 2 if is_selected else 1
+            cv2.rectangle(display, (x1, y1), (x2, y2), color, thickness)
+            cv2.putText(
+                display,
+                f"{detection.label} {detection.score:.2f}",
+                (x1, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                color,
+                2,
+            )
+            self.draw_keypoints(display, detection.keypoints, color)
+
+        if selected is not None and depth_point is not None:
+            u, v = depth_point
+            cv2.circle(display, (int(u), int(v)), 6, (255, 0, 0), -1)
+            label = f"depth={depth_m:.2f}m pos=({self.person_x:.2f},{self.person_y:.2f},{self.person_z:.2f})"
+            cv2.putText(
+                display,
+                label,
+                (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 0, 0),
+                2,
+            )
+        elif selected is None:
+            cv2.putText(
+                display,
+                "No person detected",
+                (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (128, 128, 128),
+                2,
+            )
+        else:
+            cv2.putText(
+                display,
+                "Person detected, no valid depth",
+                (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2,
+            )
+
+        cv2.imshow("Person Tracker (BPU YOLOPose)", display)
+        cv2.waitKey(1)
+
+    def draw_keypoints(self, image, keypoints, color):
+        if keypoints is None:
+            return
+        skeleton = (
+            (5, 7), (7, 9), (6, 8), (8, 10),
+            (5, 6), (5, 11), (6, 12), (11, 12),
+            (11, 13), (13, 15), (12, 14), (14, 16),
+            (0, 1), (0, 2), (1, 3), (2, 4),
+        )
+        points = []
+        for kpt in keypoints:
+            x, y, score = float(kpt[0]), float(kpt[1]), float(kpt[2])
+            visible = score >= 0.5
+            points.append((int(x), int(y), visible))
+            if visible:
+                cv2.circle(image, (int(x), int(y)), 3, color, -1)
+
+        for start, end in skeleton:
+            if start >= len(points) or end >= len(points):
+                continue
+            x1, y1, ok1 = points[start]
+            x2, y2, ok2 = points[end]
+            if ok1 and ok2:
+                cv2.line(image, (x1, y1), (x2, y2), color, 1)
+
     def _log_stats(self):
         now = time.time()
         if now - self.last_log_time < self.stats_log_period_sec:
@@ -745,6 +838,8 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        if getattr(node, "debug_window", False):
+            cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
 

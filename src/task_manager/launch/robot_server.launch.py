@@ -150,6 +150,7 @@ def generate_launch_description():
                         "max_depth_m": 5.0,
                         "inference_every_n_frames": 3,
                         "max_publish_rate_hz": 10.0,
+                        "debug_window": debug_window,
                         "bpu_yolo_model_path": bpu_yolo_model_path,
                         "bpu_yolo_input_width": 640,
                         "bpu_yolo_input_height": 640,
