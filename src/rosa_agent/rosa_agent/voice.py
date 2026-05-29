@@ -2,8 +2,10 @@ import base64
 from collections import deque
 import hashlib
 import audioop
+import queue
 import subprocess
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -23,6 +25,8 @@ CACHEABLE_TTS_TEXTS = {
     "检测到异常，您是否需要帮助？",
 }
 TTS_CACHE_DIR = RUNTIME_DIR / "tts_cache"
+FRAME_MS = 100
+SAMPLE_WIDTH = 2
 
 
 def _record_raw_command(config: ASRConfig) -> list[str]:
@@ -54,6 +58,214 @@ def _record_raw_command(config: ASRConfig) -> list[str]:
     raise ValueError("AUDIO_BACKEND 仅支持 pulse 或 alsa")
 
 
+def _write_wav(path: Path, frames: list[bytes], sample_rate: int, channels: int) -> None:
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(SAMPLE_WIDTH)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b"".join(frames))
+
+
+class PersistentAudioRecorder:
+    def __init__(self, config: ASRConfig | None = None) -> None:
+        self.config = config or asr_config()
+        self.sample_rate = int(self.config.audio_sample_rate)
+        self.channels = int(self.config.audio_channels)
+        self.frame_bytes = int(
+            self.sample_rate * self.channels * SAMPLE_WIDTH * FRAME_MS / 1000
+        )
+        self._frames: queue.Queue[bytes] = queue.Queue(maxsize=200)
+        self._stop_event = threading.Event()
+        self._speaking_until = 0.0
+        self._process: subprocess.Popen | None = None
+        self._thread: threading.Thread | None = None
+        self._calibrated = False
+        self._noise_floor = 0
+        self._start_threshold = self.config.vad_threshold
+        self._release_threshold = self.config.vad_threshold
+
+    def __enter__(self) -> "PersistentAudioRecorder":
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        command = _record_raw_command(self.config)
+        self._process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._thread.start()
+
+    def close(self) -> None:
+        self._stop_event.set()
+        if self._process is not None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait(timeout=1)
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+
+    def suppress_for(self, seconds: float) -> None:
+        self._speaking_until = max(self._speaking_until, time.monotonic() + max(0.0, seconds))
+
+    def resume_after_tts(self, cooldown_sec: float) -> None:
+        self._clear_buffer()
+        self.suppress_for(cooldown_sec)
+
+    def _is_suppressed(self) -> bool:
+        return time.monotonic() < self._speaking_until
+
+    def _read_loop(self) -> None:
+        if self._process is None or self._process.stdout is None:
+            return
+        while not self._stop_event.is_set():
+            chunk = self._process.stdout.read(self.frame_bytes)
+            if not chunk:
+                break
+            try:
+                self._frames.put_nowait(chunk)
+            except queue.Full:
+                try:
+                    self._frames.get_nowait()
+                except queue.Empty:
+                    pass
+                self._frames.put_nowait(chunk)
+
+    def _clear_buffer(self) -> None:
+        while True:
+            try:
+                self._frames.get_nowait()
+            except queue.Empty:
+                return
+
+    def _next_frame(self, timeout: float = 0.1) -> bytes | None:
+        try:
+            return self._frames.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def calibrate(self) -> None:
+        if self._calibrated or not self.config.vad_adaptive:
+            return
+        warmup_frames = max(0, int(self.config.vad_warmup_ms / FRAME_MS))
+        calibrate_frames = max(0, int(self.config.vad_calibrate_ms / FRAME_MS))
+        rms_values: list[int] = []
+
+        while warmup_frames > 0:
+            chunk = self._next_frame()
+            if chunk is None:
+                continue
+            warmup_frames -= 1
+            if self.config.vad_debug:
+                print(f"VAD persistent warmup: rms={audioop.rms(chunk, SAMPLE_WIDTH)}")
+
+        while len(rms_values) < calibrate_frames:
+            chunk = self._next_frame()
+            if chunk is None:
+                continue
+            rms_values.append(audioop.rms(chunk, SAMPLE_WIDTH))
+
+        if rms_values:
+            sorted_rms = sorted(rms_values)
+            floor_index = min(len(sorted_rms) - 1, max(0, len(sorted_rms) // 4))
+            self._noise_floor = sorted_rms[floor_index]
+            self._start_threshold = max(
+                self.config.vad_threshold,
+                self._noise_floor + self.config.vad_margin,
+            )
+            self._release_threshold = max(
+                self.config.vad_threshold,
+                self._noise_floor + self.config.vad_release_margin,
+            )
+        self._calibrated = True
+        if self.config.vad_debug:
+            print(
+                "VAD persistent calibration: "
+                f"noise_floor={self._noise_floor}, "
+                f"start_threshold={self._start_threshold}, "
+                f"release_threshold={self._release_threshold}"
+            )
+
+    def record_wav_vad(
+        self,
+        prompt: str = "监听中...",
+        listen_timeout_sec: int | None = None,
+    ) -> Path | None:
+        self.calibrate()
+        silence_frames_needed = max(1, int(self.config.vad_silence_ms / FRAME_MS))
+        pre_roll_frames = max(0, int(self.config.vad_pre_roll_ms / FRAME_MS))
+        max_frames = max(1, int(self.config.vad_max_seconds * 1000 / FRAME_MS))
+        timeout_sec = self.config.vad_listen_timeout_sec if listen_timeout_sec is None else listen_timeout_sec
+        listen_deadline = time.monotonic() + timeout_sec if timeout_sec > 0 else None
+
+        path = Path(tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name)
+        heard_frames: list[bytes] = []
+        pre_roll: deque[bytes] = deque(maxlen=pre_roll_frames)
+        speech_started = False
+        loud_frames = 0
+        silence_frames = 0
+
+        print(prompt)
+        while True:
+            if listen_deadline is not None and not speech_started and time.monotonic() > listen_deadline:
+                path.unlink(missing_ok=True)
+                return None
+
+            chunk = self._next_frame()
+            if chunk is None:
+                continue
+            if self._is_suppressed():
+                self._clear_buffer()
+                continue
+
+            rms = audioop.rms(chunk, SAMPLE_WIDTH)
+            is_loud = rms >= self._start_threshold
+
+            if not speech_started:
+                pre_roll.append(chunk)
+                if self.config.vad_debug:
+                    print(f"VAD persistent wait: rms={rms}, threshold={self._start_threshold}")
+                if is_loud:
+                    loud_frames += 1
+                else:
+                    loud_frames = 0
+                if loud_frames >= self.config.vad_start_frames:
+                    speech_started = True
+                    heard_frames.extend(pre_roll)
+                    pre_roll.clear()
+                    print("检测到语音，录音中...")
+                continue
+
+            heard_frames.append(chunk)
+            if self.config.vad_debug:
+                print(f"VAD persistent record: rms={rms}, release_threshold={self._release_threshold}")
+            if rms >= self._release_threshold:
+                silence_frames = 0
+            else:
+                silence_frames += 1
+
+            if silence_frames >= silence_frames_needed or len(heard_frames) >= max_frames:
+                break
+
+        if not heard_frames:
+            path.unlink(missing_ok=True)
+            return None
+
+        _write_wav(path, heard_frames, self.sample_rate, self.channels)
+        print(f"录音完成：{path}")
+        return path
+
+
 def record_wav_vad(
     config: ASRConfig | None = None,
     prompt: str = "监听中...",
@@ -62,14 +274,12 @@ def record_wav_vad(
     config = config or asr_config()
     sample_rate = int(config.audio_sample_rate)
     channels = int(config.audio_channels)
-    sample_width = 2
-    frame_ms = 100
-    frame_bytes = int(sample_rate * channels * sample_width * frame_ms / 1000)
-    warmup_frames = max(0, int(config.vad_warmup_ms / frame_ms))
-    calibrate_frames = max(0, int(config.vad_calibrate_ms / frame_ms))
-    silence_frames_needed = max(1, int(config.vad_silence_ms / frame_ms))
-    pre_roll_frames = max(0, int(config.vad_pre_roll_ms / frame_ms))
-    max_frames = max(1, int(config.vad_max_seconds * 1000 / frame_ms))
+    frame_bytes = int(sample_rate * channels * SAMPLE_WIDTH * FRAME_MS / 1000)
+    warmup_frames = max(0, int(config.vad_warmup_ms / FRAME_MS))
+    calibrate_frames = max(0, int(config.vad_calibrate_ms / FRAME_MS))
+    silence_frames_needed = max(1, int(config.vad_silence_ms / FRAME_MS))
+    pre_roll_frames = max(0, int(config.vad_pre_roll_ms / FRAME_MS))
+    max_frames = max(1, int(config.vad_max_seconds * 1000 / FRAME_MS))
     listen_deadline = None
     timeout_sec = config.vad_listen_timeout_sec if listen_timeout_sec is None else listen_timeout_sec
     if timeout_sec > 0:
@@ -115,7 +325,7 @@ def record_wav_vad(
             if not chunk:
                 break
 
-            rms = audioop.rms(chunk, sample_width)
+            rms = audioop.rms(chunk, SAMPLE_WIDTH)
 
             if config.vad_adaptive and not speech_started and warmup_seen < warmup_frames:
                 warmup_seen += 1
@@ -179,11 +389,7 @@ def record_wav_vad(
             path.unlink(missing_ok=True)
             return None
 
-        with wave.open(str(path), "wb") as wav_file:
-            wav_file.setnchannels(channels)
-            wav_file.setsampwidth(sample_width)
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(b"".join(heard_frames))
+        _write_wav(path, heard_frames, sample_rate, channels)
 
         print(f"录音完成：{path}")
         return path

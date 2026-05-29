@@ -12,7 +12,7 @@ from rosa_agent.action_tools import (
 )
 from rosa_agent.cli import reply_to_user
 from rosa_agent.config import asr_config, tts_config
-from rosa_agent.voice import record_wav_vad, speak, transcribe
+from rosa_agent.voice import PersistentAudioRecorder, speak, transcribe
 
 
 WAKE_WORD = "小智"
@@ -56,12 +56,16 @@ def _cleanup_audio(path: Path | None) -> None:
         print(f"\n录音临时文件清理失败：{exc}")
 
 
-def _listen_and_transcribe(label: str, asr, listen_timeout_sec: int | None = None) -> str:
+def _listen_and_transcribe(
+    label: str,
+    asr,
+    recorder: PersistentAudioRecorder,
+    listen_timeout_sec: int | None = None,
+) -> str:
     audio_path: Path | None = None
     try:
         record_start = time.monotonic()
-        audio_path = record_wav_vad(
-            config=asr,
+        audio_path = recorder.record_wav_vad(
             prompt=label,
             listen_timeout_sec=listen_timeout_sec,
         )
@@ -76,10 +80,14 @@ def _listen_and_transcribe(label: str, asr, listen_timeout_sec: int | None = Non
         _cleanup_audio(audio_path)
 
 
-def _speak_safely(text: str, tts) -> None:
+def _speak_safely(text: str, tts, recorder: PersistentAudioRecorder | None = None) -> None:
     try:
         start = time.monotonic()
+        if recorder is not None:
+            recorder.suppress_for(0.2)
         speak(text, config=tts)
+        if recorder is not None:
+            recorder.resume_after_tts(tts_post_cooldown_sec)
         print(f"TTS 播放/生成耗时：{_elapsed_ms(start):.0f} ms")
     except Exception as exc:
         print(f"\nTTS 播放失败：{exc}")
@@ -113,7 +121,14 @@ def _compact_command_text(text: str) -> str:
     return "".join(ch for ch in text.strip() if ch not in separators)
 
 
-def _try_handle_quick_command(command_text: str, tts) -> bool:
+tts_post_cooldown_sec = 0.0
+
+
+def _try_handle_quick_command(
+    command_text: str,
+    tts,
+    recorder: PersistentAudioRecorder,
+) -> bool:
     start = time.monotonic()
     compact = _compact_command_text(command_text)
     matched = None
@@ -131,18 +146,22 @@ def _try_handle_quick_command(command_text: str, tts) -> bool:
     try:
         result = action()
         print(f"快速命令结果：{result}")
-        _speak_safely(tts_reply, tts)
+        _speak_safely(tts_reply, tts, recorder)
     except Exception as exc:
         print(f"快速命令执行失败：{exc}")
-        _speak_safely("没有听清楚。", tts)
+        _speak_safely("没有听清楚。", tts, recorder)
     return True
 
 
-def _listen_command_until_valid(asr) -> str:
-    return _listen_command_until_valid_for(asr, max(1, asr.command_window_sec))
+def _listen_command_until_valid(asr, recorder: PersistentAudioRecorder) -> str:
+    return _listen_command_until_valid_for(asr, recorder, max(1, asr.command_window_sec))
 
 
-def _listen_command_until_valid_for(asr, window_sec: float) -> str:
+def _listen_command_until_valid_for(
+    asr,
+    recorder: PersistentAudioRecorder,
+    window_sec: float,
+) -> str:
     deadline = time.monotonic() + max(1, window_sec)
     attempt = 1
     while time.monotonic() < deadline:
@@ -151,6 +170,7 @@ def _listen_command_until_valid_for(asr, window_sec: float) -> str:
         command_text = _listen_and_transcribe(
             "请说命令...",
             asr,
+            recorder,
             listen_timeout_sec=timeout,
         )
         normalized = _normalize_asr_text(command_text)
@@ -165,69 +185,82 @@ def _listen_command_until_valid_for(asr, window_sec: float) -> str:
     return ""
 
 
-def _handle_command(command_text: str, agent, llm, tts) -> None:
+def _handle_command(
+    command_text: str,
+    agent,
+    llm,
+    tts,
+    recorder: PersistentAudioRecorder,
+) -> None:
     print(f"\n命令：{command_text}")
-    if _try_handle_quick_command(command_text, tts):
+    if _try_handle_quick_command(command_text, tts, recorder):
         return
     llm_start = time.monotonic()
     reply = reply_to_user(command_text, agent=agent, llm=llm)
     print(f"LLM 调用耗时：{_elapsed_ms(llm_start):.0f} ms")
     print(f"\nROSA：{reply}")
-    _speak_safely(str(reply), tts)
+    _speak_safely(str(reply), tts, recorder)
 
 
 def main() -> None:
+    global tts_post_cooldown_sec
     agent = create_agent()
     llm = create_llm()
     asr = asr_config()
     tts = tts_config()
+    tts_post_cooldown_sec = asr.post_tts_cooldown_sec
 
     print(f"ROSA 常驻语音代理已启动。等待唤醒词：{WAKE_WORD}。Ctrl+C 退出。")
 
-    while True:
-        try:
-            wake_text = _listen_and_transcribe("等待唤醒词...", asr)
-            if not wake_text:
-                continue
+    try:
+        recorder = PersistentAudioRecorder(asr)
+        recorder.start()
+    except FileNotFoundError:
+        print(f"\n未找到录音命令。请安装对应音频工具或检查 AUDIO_BACKEND={asr.audio_backend}。")
+        return
 
-            print(f"\n识别：{wake_text}")
-            matched_wake_word = _matched_wake_word(wake_text)
-            if matched_wake_word is None:
-                continue
+    with recorder:
+        while True:
+            try:
+                wake_text = _listen_and_transcribe("等待唤醒词...", asr, recorder)
+                if not wake_text:
+                    continue
 
-            print(f"检测到唤醒词：{matched_wake_word}")
-            command_text = _command_after_wake_word(wake_text, matched_wake_word)
-            if command_text and _is_noise_command(command_text):
-                command_text = ""
+                print(f"\n识别：{wake_text}")
+                matched_wake_word = _matched_wake_word(wake_text)
+                if matched_wake_word is None:
+                    continue
 
-            if not command_text:
-                print("我在。")
-                _speak_safely("我在。", tts)
-                if asr.post_tts_cooldown_sec > 0:
-                    time.sleep(asr.post_tts_cooldown_sec)
+                print(f"检测到唤醒词：{matched_wake_word}")
+                command_text = _command_after_wake_word(wake_text, matched_wake_word)
+                if command_text and _is_noise_command(command_text):
+                    command_text = ""
 
-                command_text = _listen_command_until_valid(asr)
-            if not command_text:
-                print("没有听清楚。")
-                _speak_safely("没有听清楚。", tts)
-                continue
+                if not command_text:
+                    print("我在。")
+                    _speak_safely("我在。", tts, recorder)
 
-            while command_text:
-                _handle_command(command_text, agent, llm, tts)
-                if asr.post_tts_cooldown_sec > 0:
-                    time.sleep(asr.post_tts_cooldown_sec)
-                command_text = _listen_command_until_valid_for(
-                    asr,
-                    asr.session_idle_timeout_sec,
-                )
+                    command_text = _listen_command_until_valid(asr, recorder)
+                if not command_text:
+                    print("没有听清楚。")
+                    _speak_safely("没有听清楚。", tts, recorder)
+                    continue
 
-            print("会话超时，重新等待唤醒词。")
+                while command_text:
+                    _handle_command(command_text, agent, llm, tts, recorder)
+                    command_text = _listen_command_until_valid_for(
+                        asr,
+                        recorder,
+                        asr.session_idle_timeout_sec,
+                    )
 
-        except KeyboardInterrupt:
-            print("\n退出")
-            break
-        except Exception as exc:
-            print(f"\n出错：{exc}")
+                print("会话超时，重新等待唤醒词。")
+
+            except KeyboardInterrupt:
+                print("\n退出")
+                break
+            except Exception as exc:
+                print(f"\n出错：{exc}")
 
 
 if __name__ == "__main__":
