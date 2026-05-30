@@ -1,0 +1,17 @@
+medicines:
+  aspirin:
+    display_name: "阿司匹林"
+    aliases: ["阿司匹林", "aspirin"]
+    slot: 0
+  metformin:
+    display_name: "二甲双胍"
+    aliases: ["二甲双胍", "降糖药", "metformin"]
+    slot: 1
+  amlodipine:
+    display_name: "氨氯地平"
+    aliases: ["氨氯地平", "降压药", "amlodipine"]
+    slot: 2
+  vitamin_d:
+    display_name: "维生素D"
+    aliases: ["维生素d", "维生素D", "vitamin d"]
+    slot: 3
