@@ -1,5 +1,69 @@
 # PROJECT_STATUS.md
 
+## 2026-05-27 YOLOPose BPU Milestone
+
+Current path convention:
+
+```text
+Local Windows/WSL development workspace:
+  /home/pan/Intelligent_robot
+
+RDK X5 runtime workspace:
+  /home/sunrise/Myproj
+```
+
+YOLOPose BPU chain has been validated on the RDK X5 runtime workspace:
+
+```text
+D-Robotics rdk_model_zoo YOLOPose .bin
+  -> hbm_runtime / BPU inference
+  -> person_tracker_bpu_node.py vision_backend:=bpu_yolopose
+  -> RGB + depth localization
+  -> /person_position at about 2 Hz
+  -> /person_distance
+  -> debug_window:=true shows BPU YOLOPose bbox/keypoints/depth overlay
+```
+
+Runtime model location on the RDK X5:
+
+```text
+/home/sunrise/Myproj/runtime/models/yolo11n_pose_bayese_640x640_nv12.bin
+```
+
+Known verified launch pattern on RDK X5:
+
+```bash
+cd /home/sunrise/Myproj
+colcon build --packages-select person_tracker task_manager
+source install/setup.bash
+
+ros2 launch task_manager robot_server.launch.py \
+  vision_backend:=bpu_yolopose \
+  bpu_yolo_model_path:=/home/sunrise/Myproj/runtime/models/yolo11n_pose_bayese_640x640_nv12.bin \
+  debug_window:=true
+```
+
+Useful BPU/runtime checks:
+
+```bash
+ros2 param get /person_tracker_bpu vision_backend
+ros2 param get /person_tracker_bpu debug_window
+ros2 topic hz /person_position
+ros2 topic echo /person_distance --once
+watch -n 0.5 cat /sys/devices/system/bpu/bpu0/ratio
+hrut_bpuprofile -b 0
+```
+
+Next stage is robot behavior integration:
+
+```text
+1. Validate bpu_yolopose during FOLLOWING mode.
+2. Check follower_controller smoothness with about 2 Hz /person_position.
+3. Tune inference_every_n_frames, max_publish_rate_hz, and smoothing only if follow behavior jitters.
+4. Decide whether to publish YOLOPose keypoints as a dedicated ROS topic.
+5. If fall detection is required from YOLOPose, implement keypoint-based fall logic instead of bbox-only fall logic.
+```
+
 本文件记录养老陪伴机器人项目当前阶段进度。长期规则放在顶层 `AGENTS.md`。
 
 ## 当前阶段
@@ -108,6 +172,64 @@ demo_manager
 ```
 
 为降低卡顿，最终 demo 当前不再自动触发 inspection 巡航；`inspection` 单任务能力仍保留在 `task_manager`，可通过 `/robot_server/start_task` 手动触发。
+
+2026-05-25 新增第一阶段轻量视觉后端，目标是在不大改 `task_manager` 和
+`follower_controller` 的前提下，先跑通 YOLO/BPU 可替换的人体 bbox + 深度定位链路：
+
+```text
+src/person_tracker/scripts/person_tracker_bpu_node.py
+  - 保留旧 /person_position、/person_distance、/fall_detected topic。
+  - 新增 PersonDetector / PersonDetection 抽象。
+  - 支持 mock detector，便于无 BPU 模型时验证 ROS 链路。
+  - bpu_yolo detector 已接 D-Robotics hobot_dnn.pyeasy_dnn 加载、推理和常见 YOLOv8 输出后处理。
+  - 使用 bbox 中心/下半身窗口 median depth，过滤无效深度。
+  - 将 optical frame 转为 camera_link body frame：x 前、y 左、z 上。
+  - 支持 inference_every_n_frames、max_publish_rate_hz 和 2 秒摘要日志。
+```
+
+整机 launch 新增视觉后端参数：
+
+```bash
+ros2 launch task_manager robot_server.launch.py vision_backend:=mediapipe
+ros2 launch task_manager robot_server.launch.py vision_backend:=mock
+ros2 launch task_manager robot_server.launch.py vision_backend:=bpu_yolo bpu_yolo_model_path:=/path/to/yolov8_person.bin
+```
+
+默认仍是 `vision_backend:=mediapipe`，旧 MediaPipe 节点保留为 fallback。
+`mock`/`bpu_yolo` 会启动新 `person_tracker_bpu_node.py`，输出 topic 与旧节点兼容。
+`bpu_yolo` 需要在 RDK X5 上安装/启用 `hobot_dnn`，并提供 D-Robotics 转换后的 `.bin` 模型；不同 Model Zoo 模型如果输出 head 不同，只需调整 `BpuYoloPersonDetector`。
+注意：当前开发环境不是最终 RDK X5 实机运行环境，仓库内也没有真实 BPU 模型；因此 `bpu_yolo` 属于按 D-Robotics 常见接口和 YOLOv8 常见输出格式写出的离线实现，只通过了 Python 语法和 ROS 包构建验证，尚未完成真实 BPU 推理验收。
+说明文档见：
+
+```text
+src/person_tracker/doc/bpu_person_tracker.md
+```
+
+2026-05-27 用户已在实机 runtime 中配置好 YOLO `.bin` 模型，并已验证
+`person_tracker_bpu_node.py` 单节点可运行。下一步进入整机集成验证：
+
+```text
+robot_server.launch.py vision_backend:=bpu_yolo
+  -> 新 BPU 视觉节点发布 /person_position /person_distance /fall_detected
+  -> follower_controller 无代码修改接收 /person_position
+  -> task_manager 无代码修改接收 /fall_detected
+```
+
+优先验证顺序：
+
+```bash
+ros2 launch task_manager robot_server.launch.py \
+  vision_backend:=bpu_yolo \
+  bpu_yolo_model_path:=/path/to/runtime/model.bin
+
+ros2 topic hz /person_position
+ros2 topic echo /person_distance
+ros2 topic echo /fall_detected
+ros2 topic echo /robot_mode
+```
+
+确认视觉输出稳定后，再通过 `/robot_server/start_task` 触发 `follow`，观察
+`follower_controller` 是否在 `FOLLOWING` 模式下稳定发送跟随目标。
 
 轻量启动：
 
