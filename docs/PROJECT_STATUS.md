@@ -19,6 +19,42 @@ ROSA / 命令端发高层任务
 
 ROSA 默认 action tools 现在只暴露高层任务工具，不直接调用 Nav2、`/cmd_vel` 或底层动作序列。
 
+2026-05-30 已优化 ROSA 常驻语音录音链路，目标是降低每轮交互中麦克风停止/重启、warmup 和底噪校准带来的卡顿。
+
+本次工程经验：
+
+```text
+旧方式：
+  每轮 record_wav_vad() 都新启动 parecord/arecord。
+  每轮都重新 warmup、calibration，然后等待语音。
+  TTS 后通过 sleep/cooldown 避免喇叭声音被录入。
+
+新方式：
+  always_listen_voice_cli 使用 PersistentAudioRecorder。
+  parecord/arecord 只启动一次，后台持续读取 PCM。
+  warmup/calibration 只在常驻 recorder 第一次使用时执行。
+  VAD 从常驻缓冲区截取语音片段并写 wav 给 ASR。
+  TTS 播放期间设置 suppress/cooldown，播放后清空缓冲，避免喇叭尾音误触发。
+```
+
+实测启动方式：
+
+```bash
+source install/setup.bash
+ros2 run rosa_agent rosa_always_listen
+```
+
+实测现象：交互卡顿明显改善；首次固定短句 TTS 会写入缓存，后续命中缓存更快。当前剩余主要延迟来自 ASR 请求、LLM 调用和非固定长句 TTS 生成/播放。
+
+建议现场调参：
+
+```bash
+ASR_VAD_SILENCE_MS=700
+ASR_POST_TTS_COOLDOWN_SEC=0.4
+```
+
+若 TTS 后仍误触发，增大 `ASR_POST_TTS_COOLDOWN_SEC`；若说完后结束录音慢，优先降低 `ASR_VAD_SILENCE_MS`，但过低可能截断句中停顿。`ASR_VAD_MARGIN` 只在误触发或人声触发不了时再调。
+
 2026-05-24 最终综合 demo 已调整为轻量 VSCode 终端启动方案：
 
 ```text

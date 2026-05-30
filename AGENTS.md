@@ -172,6 +172,24 @@ TTS_PLAYER=aplay
 
 设备编号必须通过 `arecord -l` 和 `aplay -l` 在目标机器上确认。
 
+常驻语音监听应优先复用常驻录音流，不要每轮命令都停止/重启麦克风。原因是每次重启录音设备都会重新经历启动瞬态、warmup 和底噪校准，明显增加交互延迟。推荐做法：
+
+```text
+启动一次 parecord/arecord
+后台持续读取 PCM 到缓冲区
+VAD 从缓冲区截取语音片段
+TTS 播放期间通过 speaking/cooldown 门控忽略麦克风触发
+TTS 后清空残留缓冲，避免喇叭尾音进入下一轮识别
+```
+
+常驻语音延迟调参优先顺序：
+
+```text
+ASR_VAD_SILENCE_MS        控制说完后等待多少静音才结束录音
+ASR_POST_TTS_COOLDOWN_SEC 控制 TTS 播放后忽略麦克风多久以避开回声
+ASR_VAD_MARGIN            误触发/触发不了时再调整
+```
+
 ## 启动约定
 
 完整服务端优先使用：
