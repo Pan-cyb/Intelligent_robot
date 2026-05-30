@@ -198,7 +198,7 @@ ASR_VAD_MARGIN            误触发/触发不了时再调整
 ros2 launch task_manager robot_server.launch.py
 ```
 
-完整服务端默认启动视觉感知、跟随执行器和 debug window：
+完整服务端默认启动视觉感知和跟随执行器，但默认不启动 RViz 或 debug window：
 
 ```bash
 ros2 launch task_manager robot_server.launch.py
@@ -207,7 +207,14 @@ ros2 launch task_manager robot_server.launch.py
 如需关闭视觉跟随：
 
 ```bash
-ros2 launch task_manager robot_server.launch.py enable_person_tracker:=false enable_follower_controller:=false debug_window:=false
+ros2 launch task_manager robot_server.launch.py enable_person_tracker:=false enable_follower_controller:=false
+```
+
+如需打开 RViz 或 person_tracker debug window：
+
+```bash
+ros2 launch task_manager robot_server.launch.py use_rviz:=true
+ros2 launch task_manager robot_server.launch.py debug_window:=true
 ```
 
 `src/follower_controller/launch/caregiving.launch.py` 仅作为 follower 联调/历史测试入口，主线整机服务端入口是 `task_manager/launch/robot_server.launch.py`。

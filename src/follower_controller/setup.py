@@ -17,6 +17,8 @@ setup(
     ],
     scripts=[
         'scripts/follower_nav2_controller.py',
+        'scripts/follower_cmd_vel_controller.py',
+        'scripts/velocity_mux.py',
     ],
     install_requires=['setuptools'],
     zip_safe=True,
