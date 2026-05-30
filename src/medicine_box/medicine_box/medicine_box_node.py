@@ -144,7 +144,7 @@ class MedicineBoxNode(Node):
         super().__init__("medicine_box")
 
         self.declare_parameter("config_file", "")
-        self.declare_parameter("pwm_pin", 33)
+        self.declare_parameter("pwm_pin", 32)
         self.declare_parameter("pwm_frequency_hz", 50.0)
         self.declare_parameter("dry_run", False)
         self.declare_parameter("min_angle", 0.0)

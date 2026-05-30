@@ -14,7 +14,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("pwm_pin", default_value="33"),
+            DeclareLaunchArgument("pwm_pin", default_value="32"),
             DeclareLaunchArgument("dry_run", default_value="false"),
             DeclareLaunchArgument("initial_angle", default_value="0.0"),
             DeclareLaunchArgument("move_step_delay", default_value="0.03"),
